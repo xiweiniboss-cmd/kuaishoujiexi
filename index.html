@@ -151,7 +151,14 @@
   .sheet-fallback a{color:var(--brand3);text-decoration:none;font-weight:600}
   /* ---------- 反馈 & 页脚 ---------- */
   .foot{margin-top:30px;text-align:center;font-size:12px;color:var(--faint);line-height:1.9;padding:0 12px}
-  .foot button{background:none;border:none;color:var(--sub);font-size:12px;cursor:pointer;text-decoration:underline;text-underline-offset:3px}
+  /* ---------- 可拖动反馈悬浮按钮 ---------- */
+  .fb-fab{position:fixed;right:14px;bottom:calc(104px + var(--safe-b));z-index:30;width:52px;height:52px;border-radius:50%;
+    border:1px solid rgba(255,255,255,.25);cursor:grab;touch-action:none;user-select:none;-webkit-user-select:none;
+    background:linear-gradient(135deg,var(--brand2),var(--brand1) 60%,#f72c5b);color:#fff;
+    box-shadow:0 12px 28px rgba(255,73,6,.42), inset 0 1px 0 rgba(255,255,255,.35);
+    display:grid;place-items:center}
+  .fb-fab:active{cursor:grabbing}
+  .fb-fab svg{width:23px;height:23px;pointer-events:none}
   .fb-mask{align-items:flex-end;justify-content:center;display:flex}
   .fb-box{background:linear-gradient(180deg,#1b1b26,#12121c);width:100%;max-width:600px;border-radius:26px 26px 0 0;
     border:1px solid rgba(255,255,255,.1);padding:20px 20px calc(20px + var(--safe-b));transform:translateY(105%);transition:transform .38s cubic-bezier(.25,.9,.3,1)}
@@ -241,9 +248,13 @@
 
   <footer class="foot">
     本站仅供个人学习与收藏使用，视频版权归原作者所有，请勿用于商业用途。<br>
-    遇到问题？<button id="btnFeedback" type="button">点这里反馈</button>
+    遇到问题，点屏幕上的 💬 悬浮按钮反馈（按钮可以按住拖动）
   </footer>
 </div>
+
+<button class="fb-fab" id="fbFab" type="button" aria-label="意见反馈">
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5Z"/></svg>
+</button>
 
 <!-- 下载提示框 -->
 <div class="mask" id="sheetMask"></div>
@@ -500,8 +511,54 @@ $('btnSave').addEventListener('click', async () => {
 /* 图集图片：走同一个下载弹层 */
 function downloadMedia(url, filename, cover) { openSheet(url, filename, cover); }
 
+/* ============ 可拖动反馈悬浮按钮（点按开反馈，拖动换位置，松手自动贴边，位置会记住） ============ */
+(function initFab() {
+  const fab = $('fbFab');
+  const KEY = 'ks_fab_pos';
+  const clampPos = (x, y) => ({
+    x: Math.min(Math.max(4, x), window.innerWidth - 56),
+    y: Math.min(Math.max(4, y), window.innerHeight - 56),
+  });
+  try {
+    const saved = JSON.parse(localStorage.getItem(KEY) || 'null');
+    if (saved && typeof saved.x === 'number' && typeof saved.y === 'number') {
+      const p = clampPos(saved.x, saved.y);
+      fab.style.left = p.x + 'px'; fab.style.top = p.y + 'px';
+      fab.style.right = 'auto'; fab.style.bottom = 'auto';
+    }
+  } catch {}
+  let sx = 0, sy = 0, ox = 0, oy = 0, moved = false, dragging = false;
+  fab.addEventListener('pointerdown', (e) => {
+    dragging = true; moved = false;
+    const r = fab.getBoundingClientRect();
+    ox = r.left; oy = r.top; sx = e.clientX; sy = e.clientY;
+    try { fab.setPointerCapture(e.pointerId); } catch {}
+  });
+  fab.addEventListener('pointermove', (e) => {
+    if (!dragging) return;
+    const dx = e.clientX - sx, dy = e.clientY - sy;
+    if (Math.abs(dx) + Math.abs(dy) > 6) moved = true;
+    if (!moved) return;
+    const p = clampPos(ox + dx, oy + dy);
+    fab.style.left = p.x + 'px'; fab.style.top = p.y + 'px';
+    fab.style.right = 'auto'; fab.style.bottom = 'auto';
+  });
+  const end = () => {
+    if (!dragging) return;
+    dragging = false;
+    if (!moved) { $('fbMask').classList.add('show'); return; }
+    const r = fab.getBoundingClientRect();
+    const x = r.left + r.width / 2 < window.innerWidth / 2 ? 10 : window.innerWidth - r.width - 10;
+    fab.style.transition = 'left .25s ease';
+    fab.style.left = x + 'px';
+    setTimeout(() => { fab.style.transition = ''; }, 280);
+    try { localStorage.setItem(KEY, JSON.stringify({ x, y: r.top })); } catch {}
+  };
+  fab.addEventListener('pointerup', end);
+  fab.addEventListener('pointercancel', end);
+})();
+
 /* ============ 反馈 ============ */
-$('btnFeedback').addEventListener('click', () => $('fbMask').classList.add('show'));
 $('fbCancel').addEventListener('click', () => $('fbMask').classList.remove('show'));
 $('fbMask').addEventListener('click', (e) => { if (e.target === $('fbMask')) $('fbMask').classList.remove('show'); });
 $('fbSubmit').addEventListener('click', async () => {
