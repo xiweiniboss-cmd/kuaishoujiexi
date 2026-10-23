@@ -1,0 +1,528 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>快手去水印解析 · 无水印视频下载</title>
+<meta name="description" content="粘贴快手分享链接，一键解析下载无水印视频，手机电脑都能用。">
+<meta name="theme-color" content="#0a0a10">
+<style>
+  :root{
+    --bg:#08080e;
+    --card:rgba(255,255,255,.055);
+    --card-border:rgba(255,255,255,.11);
+    --text:#f5f3ef;
+    --sub:rgba(245,243,239,.62);
+    --faint:rgba(245,243,239,.38);
+    --brand1:#ff4906;
+    --brand2:#ff8a3d;
+    --brand3:#ffb25e;
+    --ok:#3ddc84;
+    --err:#ff7a6b;
+    --radius:22px;
+    --safe-b:env(safe-area-inset-bottom, 0px);
+  }
+  *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  html{scroll-behavior:smooth}
+  body{
+    font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Hiragino Sans GB","Microsoft YaHei",system-ui,sans-serif;
+    background:var(--bg);color:var(--text);
+    min-height:100dvh;overflow-x:hidden;
+    padding-bottom:calc(28px + var(--safe-b));
+  }
+  /* ---------- 背景 ---------- */
+  .bg{position:fixed;inset:0;z-index:-2;overflow:hidden;background:
+    radial-gradient(120% 90% at 50% 0%, #17121f 0%, var(--bg) 55%)}
+  .orb{position:absolute;border-radius:50%;filter:blur(70px);opacity:.5;will-change:transform}
+  .orb-a{width:340px;height:340px;left:-90px;top:-70px;background:radial-gradient(circle at 35% 35%, #ff6a1f, #ff2e63 70%);animation:drift 16s ease-in-out infinite alternate}
+  .orb-b{width:280px;height:280px;right:-80px;top:180px;background:radial-gradient(circle at 60% 40%, #7a2bff, #2b1055 75%);opacity:.34;animation:drift 21s ease-in-out infinite alternate-reverse}
+  .orb-c{width:220px;height:220px;left:32%;bottom:-110px;background:radial-gradient(circle at 50% 50%, #ff9d2e, #b33c00 75%);opacity:.28;animation:drift 19s ease-in-out infinite alternate}
+  @keyframes drift{from{transform:translate(0,0) scale(1)}to{transform:translate(38px,26px) scale(1.08)}}
+  .grain{position:fixed;inset:0;z-index:-1;pointer-events:none;opacity:.5;
+    background-image:radial-gradient(rgba(255,255,255,.05) 1px, transparent 1px);background-size:22px 22px}
+  /* ---------- 布局 ---------- */
+  .wrap{max-width:600px;margin:0 auto;padding:26px 18px 0}
+  header{display:flex;align-items:center;gap:12px}
+  .logo{width:46px;height:46px;border-radius:14px;flex:none;display:grid;place-items:center;
+    background:linear-gradient(135deg,var(--brand2),var(--brand1) 55%,#e82e5f);
+    box-shadow:0 10px 26px rgba(255,73,6,.38), inset 0 1px 0 rgba(255,255,255,.35)}
+  .logo svg{width:24px;height:24px}
+  .brand-name{font-size:19px;font-weight:800;letter-spacing:.5px}
+  .brand-sub{font-size:12px;color:var(--sub);margin-top:2px;letter-spacing:1.5px}
+  .quota-chip{margin-left:auto;font-size:12px;color:var(--sub);border:1px solid var(--card-border);
+    background:var(--card);padding:6px 11px;border-radius:999px;backdrop-filter:blur(8px);white-space:nowrap}
+  .quota-chip b{color:var(--brand3);font-weight:700}
+  /* ---------- Hero ---------- */
+  .hero{margin-top:38px}
+  .hero h1{font-size:31px;line-height:1.28;font-weight:900;letter-spacing:.5px}
+  .hero h1 .grad{background:linear-gradient(92deg,var(--brand3),var(--brand1) 55%,#ff2e63);
+    -webkit-background-clip:text;background-clip:text;color:transparent}
+  .hero p{margin-top:12px;font-size:14.5px;line-height:1.75;color:var(--sub)}
+  /* ---------- 输入卡 ---------- */
+  .card{margin-top:24px;background:var(--card);border:1px solid var(--card-border);border-radius:var(--radius);
+    backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);
+    box-shadow:0 24px 50px rgba(0,0,0,.45), inset 0 1px 0 rgba(255,255,255,.07);padding:18px}
+  .input-shell{background:rgba(0,0,0,.32);border:1px solid rgba(255,255,255,.09);border-radius:16px;padding:13px 14px;
+    transition:border-color .2s, box-shadow .2s}
+  .input-shell:focus-within{border-color:rgba(255,122,40,.65);box-shadow:0 0 0 4px rgba(255,73,6,.14)}
+  textarea{width:100%;border:none;outline:none;resize:none;background:transparent;color:var(--text);
+    font-size:15px;line-height:1.6;min-height:64px;font-family:inherit}
+  textarea::placeholder{color:var(--faint)}
+  .input-tools{display:flex;gap:9px;margin-top:11px}
+  .tool-btn{flex:none;display:inline-flex;align-items:center;gap:6px;font-size:13px;color:var(--sub);
+    background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.09);border-radius:999px;padding:8px 14px;cursor:pointer;
+    transition:background .15s,color .15s}
+  .tool-btn:active{background:rgba(255,255,255,.13);color:var(--text)}
+  .tool-btn svg{width:14px;height:14px}
+  .cta{position:relative;margin-top:16px;width:100%;border:none;cursor:pointer;border-radius:16px;padding:16px;
+    font-size:17px;font-weight:800;letter-spacing:2px;color:#fff;overflow:hidden;
+    background:linear-gradient(92deg,var(--brand2),var(--brand1) 55%,#f72c5b);
+    box-shadow:0 14px 30px rgba(255,73,6,.35), inset 0 1px 0 rgba(255,255,255,.35);
+    transition:transform .12s, box-shadow .2s, opacity .2s}
+  .cta:active{transform:scale(.985)}
+  .cta[disabled]{opacity:.65;pointer-events:none}
+  .cta::after{content:"";position:absolute;top:0;left:-70%;width:45%;height:100%;
+    background:linear-gradient(100deg,transparent,rgba(255,255,255,.35),transparent);transform:skewX(-18deg);
+    animation:shine 3.4s ease-in-out infinite}
+  @keyframes shine{0%,55%{left:-70%}85%,100%{left:130%}}
+  .spinner{display:inline-block;width:16px;height:16px;vertical-align:-3px;margin-right:8px;border-radius:50%;
+    border:2.5px solid rgba(255,255,255,.35);border-top-color:#fff;animation:spin .7s linear infinite}
+  @keyframes spin{to{transform:rotate(360deg)}}
+  .hint-row{display:flex;justify-content:space-between;align-items:center;margin-top:12px;font-size:12px;color:var(--faint)}
+  /* ---------- 步骤 ---------- */
+  .steps{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:20px}
+  .step{background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.07);border-radius:16px;padding:13px 10px;text-align:center}
+  .step .ic{font-size:19px}
+  .step .t{font-size:12.5px;font-weight:700;margin-top:6px}
+  .step .d{font-size:11px;color:var(--faint);margin-top:3px;line-height:1.5}
+  /* ---------- 结果 ---------- */
+  #result{display:none;margin-top:22px}
+  #result.show{display:block;animation:rise .45s cubic-bezier(.2,.9,.25,1)}
+  @keyframes rise{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:none}}
+  .res-card{overflow:hidden;border-radius:var(--radius);border:1px solid var(--card-border);background:var(--card);
+    backdrop-filter:blur(14px);box-shadow:0 24px 50px rgba(0,0,0,.45)}
+  .res-cover{position:relative;background:#000;max-height:420px;display:flex;justify-content:center}
+  .res-cover img{max-width:100%;max-height:420px;object-fit:contain;display:block}
+  .res-cover .badge{position:absolute;left:12px;top:12px;font-size:11px;font-weight:700;letter-spacing:1px;color:#fff;
+    background:rgba(255,73,6,.92);border-radius:999px;padding:5px 10px;box-shadow:0 6px 16px rgba(0,0,0,.35)}
+  .res-body{padding:16px 18px 18px}
+  .res-title{font-size:15.5px;line-height:1.65;font-weight:600;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
+  .res-author{margin-top:8px;font-size:12.5px;color:var(--sub)}
+  .res-author b{color:var(--brand3);font-weight:600}
+  .res-actions{display:flex;gap:10px;margin-top:16px}
+  .btn-dl{flex:1;border:none;cursor:pointer;border-radius:14px;padding:14px;font-size:15.5px;font-weight:800;letter-spacing:1px;color:#fff;
+    background:linear-gradient(92deg,var(--brand2),var(--brand1) 60%,#f72c5b);
+    box-shadow:0 10px 24px rgba(255,73,6,.32);display:inline-flex;align-items:center;justify-content:center;gap:8px;
+    transition:transform .12s}
+  .btn-dl:active{transform:scale(.98)}
+  .btn-ghost{flex:none;border:1px solid var(--card-border);background:rgba(255,255,255,.05);color:var(--sub);
+    border-radius:14px;padding:14px 16px;font-size:14px;cursor:pointer}
+  .btn-ghost:active{background:rgba(255,255,255,.12)}
+  .img-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:14px}
+  .img-grid figure{position:relative;border-radius:12px;overflow:hidden;background:#000}
+  .img-grid img{width:100%;height:110px;object-fit:cover;display:block}
+  .img-grid button{position:absolute;right:6px;bottom:6px;border:none;cursor:pointer;font-size:11px;font-weight:700;color:#fff;
+    background:rgba(255,73,6,.94);border-radius:999px;padding:5px 10px}
+  /* ---------- 底部弹层（下载提示框） ---------- */
+  .mask{position:fixed;inset:0;background:rgba(4,4,8,.62);backdrop-filter:blur(3px);z-index:40;
+    opacity:0;pointer-events:none;transition:opacity .25s}
+  .mask.show{opacity:1;pointer-events:auto}
+  .sheet{position:fixed;left:0;right:0;bottom:0;z-index:41;transform:translateY(105%);transition:transform .38s cubic-bezier(.25,.9,.3,1);
+    background:linear-gradient(180deg,#1b1b26,#12121c);border-radius:26px 26px 0 0;border:1px solid rgba(255,255,255,.1);border-bottom:none;
+    padding:14px 20px calc(20px + var(--safe-b));max-width:600px;margin:0 auto;
+    box-shadow:0 -18px 50px rgba(0,0,0,.55)}
+  .sheet.show{transform:none}
+  @media(min-width:640px){.sheet{border-radius:26px;bottom:24px;border-bottom:1px solid rgba(255,255,255,.1)}}
+  .grab{width:42px;height:5px;border-radius:99px;background:rgba(255,255,255,.22);margin:0 auto 16px}
+  .sheet-head{display:flex;gap:13px;align-items:center}
+  .sheet-head img{width:56px;height:56px;border-radius:13px;object-fit:cover;background:#000;flex:none}
+  .sheet-head .st{flex:1;min-width:0}
+  .sheet-head .st .t1{font-size:14.5px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .sheet-head .st .t2{font-size:12px;color:var(--sub);margin-top:4px}
+  .sheet-close{flex:none;width:32px;height:32px;border-radius:50%;border:1px solid rgba(255,255,255,.12);
+    background:rgba(255,255,255,.06);color:var(--sub);font-size:15px;cursor:pointer}
+  .prog{margin-top:18px;height:9px;border-radius:99px;background:rgba(255,255,255,.09);overflow:hidden}
+  .prog i{display:block;height:100%;width:0%;border-radius:99px;
+    background:linear-gradient(90deg,var(--brand3),var(--brand1),#f72c5b);transition:width .18s ease}
+  .prog-txt{display:flex;justify-content:space-between;font-size:12px;color:var(--sub);margin-top:8px}
+  .sheet .btn-dl{width:100%;margin-top:16px}
+  .sheet .btn-dl[disabled]{opacity:.55;pointer-events:none}
+  .sheet-fallback{margin-top:12px;text-align:center;font-size:12.5px;color:var(--faint)}
+  .sheet-fallback a{color:var(--brand3);text-decoration:none;font-weight:600}
+  /* ---------- 反馈 & 页脚 ---------- */
+  .foot{margin-top:30px;text-align:center;font-size:12px;color:var(--faint);line-height:1.9;padding:0 12px}
+  .foot button{background:none;border:none;color:var(--sub);font-size:12px;cursor:pointer;text-decoration:underline;text-underline-offset:3px}
+  .fb-mask{align-items:flex-end;justify-content:center;display:flex}
+  .fb-box{background:linear-gradient(180deg,#1b1b26,#12121c);width:100%;max-width:600px;border-radius:26px 26px 0 0;
+    border:1px solid rgba(255,255,255,.1);padding:20px 20px calc(20px + var(--safe-b));transform:translateY(105%);transition:transform .38s cubic-bezier(.25,.9,.3,1)}
+  .mask.show .fb-box{transform:none}
+  .fb-box h3{font-size:16px;font-weight:800}
+  .fb-box p{font-size:12.5px;color:var(--sub);margin-top:6px;line-height:1.6}
+  .fb-box textarea{min-height:96px;background:rgba(0,0,0,.32);border:1px solid rgba(255,255,255,.1);border-radius:14px;
+    padding:12px;width:100%;margin-top:14px}
+  .fb-box input{width:100%;margin-top:10px;background:rgba(0,0,0,.32);border:1px solid rgba(255,255,255,.1);border-radius:14px;
+    padding:12px;color:var(--text);font-size:14px;outline:none;font-family:inherit}
+  /* ---------- Toast ---------- */
+  #toast{position:fixed;left:50%;top:calc(16px + env(safe-area-inset-top,0px));transform:translate(-50%,-16px);z-index:60;
+    max-width:min(92vw,480px);background:rgba(20,20,30,.92);border:1px solid rgba(255,255,255,.14);color:var(--text);
+    font-size:13.5px;line-height:1.55;padding:11px 16px;border-radius:14px;box-shadow:0 16px 40px rgba(0,0,0,.5);
+    opacity:0;pointer-events:none;transition:opacity .25s,transform .25s;backdrop-filter:blur(10px)}
+  #toast.show{opacity:1;transform:translate(-50%,0)}
+  #toast.err{border-color:rgba(255,110,90,.5)}
+  #toast.ok{border-color:rgba(61,220,132,.45)}
+</style>
+</head>
+<body>
+<div class="bg"><div class="orb orb-a"></div><div class="orb orb-b"></div><div class="orb orb-c"></div></div>
+<div class="grain"></div>
+
+<div class="wrap">
+  <header>
+    <div class="logo" aria-hidden="true">
+      <svg viewBox="0 0 24 24" fill="none"><path d="M8.2 5.4v13.2c0 .9 1 1.5 1.8 1L19 13a1.2 1.2 0 0 0 0-2L10 4.4c-.8-.5-1.8.1-1.8 1Z" fill="#fff"/></svg>
+    </div>
+    <div>
+      <div class="brand-name">快手解析</div>
+      <div class="brand-sub">KUAISHOU · 无水印下载</div>
+    </div>
+    <div class="quota-chip" id="quotaChip" style="display:none">今日剩余 <b id="quotaLeft">–</b> 次</div>
+  </header>
+
+  <section class="hero">
+    <h1>粘贴链接<br>一键保存 <span class="grad">无水印视频</span></h1>
+    <p>在快手里点「分享 → 复制链接」，把整段分享文字粘到下面，剩下的交给我们。原画质、无水印，手机电脑都能下。</p>
+  </section>
+
+  <section class="card">
+    <div class="input-shell">
+      <textarea id="urlInput" rows="3" placeholder="把快手的分享链接粘贴到这里，例如：https://v.kuaishou.com/xxxxxx"></textarea>
+      <div class="input-tools">
+        <button class="tool-btn" id="btnPaste" type="button">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="8" y="2" width="8" height="4" rx="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/></svg>
+          粘贴
+        </button>
+        <button class="tool-btn" id="btnClear" type="button">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2m2 0v14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2V6"/></svg>
+          清空
+        </button>
+      </div>
+    </div>
+    <div id="tsBox" style="margin-top:14px"></div>
+    <button class="cta" id="btnParse" type="button">开始解析</button>
+    <div class="hint-row"><span>支持 v.kuaishou.com 短链与完整分享文字</span><span>免费使用</span></div>
+  </section>
+
+  <section class="steps">
+    <div class="step"><div class="ic">📤</div><div class="t">复制链接</div><div class="d">快手 App 里分享<br>选择「复制链接」</div></div>
+    <div class="step"><div class="ic">✨</div><div class="t">粘贴解析</div><div class="d">贴到上方输入框<br>点「开始解析」</div></div>
+    <div class="step"><div class="ic">⬇️</div><div class="t">保存视频</div><div class="d">弹窗里点下载<br>无水印存到本地</div></div>
+  </section>
+
+  <section id="result">
+    <div class="res-card">
+      <div class="res-cover">
+        <img id="resCover" alt="视频封面" referrerpolicy="no-referrer">
+        <span class="badge">无水印</span>
+      </div>
+      <div class="res-body">
+        <div class="res-title" id="resTitle"></div>
+        <div class="res-author" id="resAuthor"></div>
+        <div class="res-actions">
+          <button class="btn-dl" id="btnDownload" type="button">
+            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M12 3v12m0 0 4.5-4.5M12 15 7.5 10.5M4 20h16"/></svg>
+            下载视频
+          </button>
+          <button class="btn-ghost" id="btnCopy" type="button">复制地址</button>
+        </div>
+        <div class="img-grid" id="imgGrid" style="display:none"></div>
+      </div>
+    </div>
+  </section>
+
+  <footer class="foot">
+    本站仅供个人学习与收藏使用，视频版权归原作者所有，请勿用于商业用途。<br>
+    遇到问题？<button id="btnFeedback" type="button">点这里反馈</button>
+  </footer>
+</div>
+
+<!-- 下载提示框 -->
+<div class="mask" id="sheetMask"></div>
+<div class="sheet" id="sheet" role="dialog" aria-modal="true" aria-label="下载视频">
+  <div class="grab"></div>
+  <div class="sheet-head">
+    <img id="sheetCover" alt="" referrerpolicy="no-referrer">
+    <div class="st">
+      <div class="t1" id="sheetTitle">视频</div>
+      <div class="t2" id="sheetSub">无水印 · 原画质</div>
+    </div>
+    <button class="sheet-close" id="sheetClose" type="button" aria-label="关闭">✕</button>
+  </div>
+  <div class="prog"><i id="progBar"></i></div>
+  <div class="prog-txt"><span id="progState">正在准备……</span><span id="progPct"></span></div>
+  <button class="btn-dl" id="btnSave" type="button" disabled>下载中……</button>
+  <div class="sheet-fallback">保存不了？<a href="#" id="sheetOpenLink">点此打开视频</a>，长按画面即可保存到相册</div>
+</div>
+
+<!-- 反馈 -->
+<div class="mask fb-mask" id="fbMask">
+  <div class="fb-box">
+    <h3>💬 意见反馈</h3>
+    <p>解析失败、下载不了，或者有想加的功能，都可以写在这里。</p>
+    <textarea id="fbText" placeholder="写下你遇到的问题或建议……"></textarea>
+    <input id="fbContact" placeholder="联系方式（选填，方便回复你）">
+    <button class="btn-dl" id="fbSubmit" type="button" style="width:100%;margin-top:14px">提交反馈</button>
+    <button class="btn-ghost" id="fbCancel" type="button" style="width:100%;margin-top:10px">取消</button>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<script>
+'use strict';
+/* ============ 基础 ============ */
+const $ = (id) => document.getElementById(id);
+const TS_SITEKEY = ''; // 如需开启 Turnstile，把站点公钥填这里（后端配 TURNSTILE_SECRET_KEY 后生效）
+let deviceId = localStorage.getItem('ks_device');
+if (!deviceId) {
+  deviceId = 'd' + Date.now().toString(36) + Math.random().toString(36).slice(2, 10);
+  localStorage.setItem('ks_device', deviceId);
+}
+let toastTimer = null;
+function toast(msg, kind) {
+  const t = $('toast');
+  t.textContent = msg;
+  t.className = 'show ' + (kind || '');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => { t.className = ''; }, 3600);
+}
+function extractUrl(text) {
+  const m = String(text || '').match(/https?:\/\/[^\s"'<>]+/i);
+  return m ? m[0].replace(/[.,;!?\]]+$/, '') : '';
+}
+
+/* Turnstile（可选） */
+let tsToken = '';
+if (TS_SITEKEY) {
+  const s = document.createElement('script');
+  s.src = 'https://challenges.cloudflare.com/turnstile/v0/api.js';
+  s.async = true; s.defer = true;
+  document.head.appendChild(s);
+  const box = document.createElement('div');
+  box.className = 'cf-turnstile';
+  box.setAttribute('data-sitekey', TS_SITEKEY);
+  box.setAttribute('data-callback', 'onTsOk');
+  $('tsBox').appendChild(box);
+  window.onTsOk = (tok) => { tsToken = tok; };
+}
+
+/* ============ 配额 ============ */
+async function refreshQuota() {
+  try {
+    const r = await fetch('/api/quota?device=' + encodeURIComponent(deviceId));
+    const j = await r.json();
+    if (j && j.limited) {
+      $('quotaChip').style.display = '';
+      $('quotaLeft').textContent = j.remaining;
+    }
+  } catch {}
+}
+refreshQuota();
+
+/* ============ 输入工具 ============ */
+$('btnPaste').addEventListener('click', async () => {
+  try {
+    const t = await navigator.clipboard.readText();
+    if (t) { $('urlInput').value = t; toast('已粘贴', 'ok'); }
+    else toast('剪贴板是空的');
+  } catch { toast('读取剪贴板失败，请长按输入框粘贴'); $('urlInput').focus(); }
+});
+$('btnClear').addEventListener('click', () => { $('urlInput').value = ''; $('urlInput').focus(); });
+
+/* ============ 解析 ============ */
+let current = null; // {title, cover, author, videos, images, type}
+$('btnParse').addEventListener('click', parse);
+async function parse() {
+  const text = $('urlInput').value.trim();
+  const url = extractUrl(text);
+  if (!url) { toast('先粘贴一个快手分享链接吧', 'err'); $('urlInput').focus(); return; }
+  if (!/kuaishou|gifshow/i.test(url)) { toast('这好像不是快手链接，检查一下再试', 'err'); return; }
+  const btn = $('btnParse');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span>解析中……';
+  try {
+    const resp = await fetch('/api/parse', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url: text, device: deviceId, tsToken }),
+    });
+    const j = await resp.json().catch(() => null);
+    if (!j || !j.ok) throw new Error((j && j.error) || '解析失败，请稍后重试');
+    current = j;
+    renderResult(j);
+    refreshQuota();
+    toast('解析成功 🎉', 'ok');
+  } catch (e) {
+    toast(e.message || '解析失败，请稍后重试', 'err');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '开始解析';
+  }
+}
+function renderResult(j) {
+  const box = $('result');
+  box.classList.add('show');
+  const cover = j.cover || '';
+  $('resCover').src = cover;
+  $('resCover').parentElement.style.display = cover ? '' : 'none';
+  $('resTitle').textContent = j.title || '（无标题）';
+  $('resAuthor').innerHTML = j.author ? '作者 <b></b>' : '';
+  if (j.author) $('resAuthor').querySelector('b').textContent = '@' + j.author;
+  const isVideo = (j.videos || []).length > 0;
+  $('btnDownload').style.display = isVideo ? '' : 'none';
+  $('btnCopy').style.display = isVideo ? '' : 'none';
+  const grid = $('imgGrid');
+  grid.innerHTML = '';
+  if ((j.images || []).length) {
+    grid.style.display = 'grid';
+    j.images.forEach((src, i) => {
+      const fig = document.createElement('figure');
+      const img = document.createElement('img');
+      img.src = src; img.alt = '图片 ' + (i + 1); img.referrerPolicy = 'no-referrer'; img.loading = 'lazy';
+      const b = document.createElement('button');
+      b.textContent = '保存';
+      b.addEventListener('click', () => downloadMedia(src, 'kuaishou_img_' + (i + 1) + '.jpg', src));
+      fig.appendChild(img); fig.appendChild(b);
+      grid.appendChild(fig);
+    });
+  } else grid.style.display = 'none';
+  box.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
+$('btnCopy').addEventListener('click', async () => {
+  if (!current || !current.videos || !current.videos[0]) return;
+  try { await navigator.clipboard.writeText(current.videos[0]); toast('视频地址已复制', 'ok'); }
+  catch { toast('复制失败，请用下载按钮保存'); }
+});
+$('btnDownload').addEventListener('click', () => {
+  if (!current || !current.videos || !current.videos[0]) return;
+  openSheet(current.videos[0], 'kuaishou_' + Date.now() + '.mp4');
+});
+
+/* ============ 下载弹层 ============ */
+let sheetBlob = null, sheetUrl = '', sheetName = '', sheetBusy = false;
+function openSheet(mediaUrl, filename, coverOverride) {
+  sheetUrl = mediaUrl; sheetName = filename; sheetBlob = null;
+  $('sheetCover').src = coverOverride || (current && current.cover) || '';
+  $('sheetTitle').textContent = (current && current.title) || filename;
+  $('sheetSub').textContent = '无水印 · 原画质';
+  $('progBar').style.width = '0%';
+  $('progPct').textContent = '';
+  $('progState').textContent = '正在准备……';
+  const save = $('btnSave');
+  save.disabled = true; save.textContent = '下载中……';
+  $('sheetOpenLink').href = '/api/dl?url=' + encodeURIComponent(mediaUrl) + '&filename=' + encodeURIComponent(filename);
+  $('sheetMask').classList.add('show');
+  $('sheet').classList.add('show');
+  fetchToBlob(mediaUrl, filename);
+}
+function closeSheet() {
+  $('sheetMask').classList.remove('show');
+  $('sheet').classList.remove('show');
+}
+$('sheetClose').addEventListener('click', closeSheet);
+$('sheetMask').addEventListener('click', closeSheet);
+$('sheetOpenLink').addEventListener('click', (e) => { e.stopPropagation(); });
+
+async function fetchToBlob(mediaUrl, filename) {
+  if (sheetBusy) return;
+  sheetBusy = true;
+  try {
+    const resp = await fetch('/api/dl?url=' + encodeURIComponent(mediaUrl) + '&filename=' + encodeURIComponent(filename));
+    if (!resp.ok) {
+      let msg = '下载失败（HTTP ' + resp.status + '）';
+      try { const j = await resp.json(); if (j && j.error) msg = j.error; } catch {}
+      throw new Error(msg);
+    }
+    const total = parseInt(resp.headers.get('content-length') || '0', 10) || 0;
+    const reader = resp.body.getReader();
+    const chunks = [];
+    let got = 0;
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      chunks.push(value);
+      got += value.length;
+      const mb = (got / 1048576).toFixed(1);
+      if (total > 0) {
+        const pct = Math.min(100, Math.round((got / total) * 100));
+        $('progBar').style.width = pct + '%';
+        $('progPct').textContent = pct + '%';
+        $('progState').textContent = '已下载 ' + mb + ' MB / ' + (total / 1048576).toFixed(1) + ' MB';
+      } else {
+        $('progState').textContent = '已下载 ' + mb + ' MB';
+      }
+    }
+    sheetBlob = new Blob(chunks, { type: resp.headers.get('content-type') || 'video/mp4' });
+    $('progBar').style.width = '100%';
+    $('progPct').textContent = '100%';
+    $('progState').textContent = '下载完成，点下面按钮保存';
+    const save = $('btnSave');
+    save.disabled = false;
+    save.textContent = '💾 保存视频';
+  } catch (e) {
+    $('progState').textContent = '下载失败';
+    toast(e.message || '下载失败，请重试', 'err');
+    const save = $('btnSave');
+    save.disabled = false;
+    save.textContent = '重试';
+    sheetBlob = null;
+  } finally {
+    sheetBusy = false;
+  }
+}
+$('btnSave').addEventListener('click', async () => {
+  if (!sheetBlob) { // 重试
+    if (sheetUrl) { $('btnSave').disabled = true; $('btnSave').textContent = '下载中……'; fetchToBlob(sheetUrl, sheetName); }
+    return;
+  }
+  const file = new File([sheetBlob], sheetName, { type: sheetBlob.type || 'video/mp4' });
+  if (navigator.canShare && navigator.canShare({ files: [file] })) {
+    try { await navigator.share({ files: [file] }); toast('已调起系统保存/分享', 'ok'); return; }
+    catch (e) { if (e && e.name === 'AbortError') return; }
+  }
+  const objUrl = URL.createObjectURL(sheetBlob);
+  const a = document.createElement('a');
+  a.href = objUrl; a.download = sheetName;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(objUrl), 4000);
+  toast('已开始保存到本地', 'ok');
+});
+
+/* 图集图片：走同一个下载弹层 */
+function downloadMedia(url, filename, cover) { openSheet(url, filename, cover); }
+
+/* ============ 反馈 ============ */
+$('btnFeedback').addEventListener('click', () => $('fbMask').classList.add('show'));
+$('fbCancel').addEventListener('click', () => $('fbMask').classList.remove('show'));
+$('fbMask').addEventListener('click', (e) => { if (e.target === $('fbMask')) $('fbMask').classList.remove('show'); });
+$('fbSubmit').addEventListener('click', async () => {
+  const message = $('fbText').value.trim();
+  if (!message) { toast('先写点内容再提交吧', 'err'); return; }
+  const btn = $('fbSubmit');
+  btn.disabled = true; btn.textContent = '提交中……';
+  try {
+    const resp = await fetch('/api/feedback', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message, contact: $('fbContact').value.trim(), device: deviceId }),
+    });
+    const j = await resp.json().catch(() => null);
+    if (!j || !j.ok) throw new Error((j && j.error) || '提交失败');
+    $('fbText').value = ''; $('fbContact').value = '';
+    $('fbMask').classList.remove('show');
+    toast('反馈已收到，谢谢！', 'ok');
+  } catch (e) { toast(e.message || '提交失败，请稍后重试', 'err'); }
+  finally { btn.disabled = false; btn.textContent = '提交反馈'; }
+});
+</script>
+</body>
+</html>
