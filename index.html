@@ -3,306 +3,102 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>快手去水印解析 · 无水印视频下载</title>
-<meta name="description" content="粘贴快手分享链接，一键解析下载无水印视频，手机电脑都能用。">
-<meta name="theme-color" content="#0a0a10">
-<style>
-  :root{
-    --bg:#08080e;
-    --card:rgba(255,255,255,.055);
-    --card-border:rgba(255,255,255,.11);
-    --text:#f5f3ef;
-    --sub:rgba(245,243,239,.62);
-    --faint:rgba(245,243,239,.38);
-    --brand1:#ff4906;
-    --brand2:#ff8a3d;
-    --brand3:#ffb25e;
-    --ok:#3ddc84;
-    --err:#ff7a6b;
-    --radius:22px;
-    --safe-b:env(safe-area-inset-bottom, 0px);
-  }
-  *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
-  html{scroll-behavior:smooth}
-  body{
-    font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Hiragino Sans GB","Microsoft YaHei",system-ui,sans-serif;
-    background:var(--bg);color:var(--text);
-    min-height:100dvh;overflow-x:hidden;
-    padding-bottom:calc(28px + var(--safe-b));
-  }
-  /* ---------- 背景 ---------- */
-  .bg{position:fixed;inset:0;z-index:-2;overflow:hidden;background:
-    radial-gradient(120% 90% at 50% 0%, #17121f 0%, var(--bg) 55%)}
-  .orb{position:absolute;border-radius:50%;filter:blur(70px);opacity:.5;will-change:transform}
-  .orb-a{width:340px;height:340px;left:-90px;top:-70px;background:radial-gradient(circle at 35% 35%, #ff6a1f, #ff2e63 70%);animation:drift 16s ease-in-out infinite alternate}
-  .orb-b{width:280px;height:280px;right:-80px;top:180px;background:radial-gradient(circle at 60% 40%, #7a2bff, #2b1055 75%);opacity:.34;animation:drift 21s ease-in-out infinite alternate-reverse}
-  .orb-c{width:220px;height:220px;left:32%;bottom:-110px;background:radial-gradient(circle at 50% 50%, #ff9d2e, #b33c00 75%);opacity:.28;animation:drift 19s ease-in-out infinite alternate}
-  @keyframes drift{from{transform:translate(0,0) scale(1)}to{transform:translate(38px,26px) scale(1.08)}}
-  .grain{position:fixed;inset:0;z-index:-1;pointer-events:none;opacity:.5;
-    background-image:radial-gradient(rgba(255,255,255,.05) 1px, transparent 1px);background-size:22px 22px}
-  /* ---------- 布局 ---------- */
-  .wrap{max-width:600px;margin:0 auto;padding:26px 18px 0}
-  header{display:flex;align-items:center;gap:12px}
-  .logo{width:46px;height:46px;border-radius:14px;flex:none;display:grid;place-items:center;
-    background:linear-gradient(135deg,var(--brand2),var(--brand1) 55%,#e82e5f);
-    box-shadow:0 10px 26px rgba(255,73,6,.38), inset 0 1px 0 rgba(255,255,255,.35)}
-  .logo svg{width:24px;height:24px}
-  .brand-name{font-size:19px;font-weight:800;letter-spacing:.5px}
-  .brand-sub{font-size:12px;color:var(--sub);margin-top:2px;letter-spacing:1.5px}
-  .quota-chip{margin-left:auto;font-size:12px;color:var(--sub);border:1px solid var(--card-border);
-    background:var(--card);padding:6px 11px;border-radius:999px;backdrop-filter:blur(8px);white-space:nowrap}
-  .quota-chip b{color:var(--brand3);font-weight:700}
-  /* ---------- Hero ---------- */
-  .hero{margin-top:38px}
-  .hero h1{font-size:31px;line-height:1.28;font-weight:900;letter-spacing:.5px}
-  .hero h1 .grad{background:linear-gradient(92deg,var(--brand3),var(--brand1) 55%,#ff2e63);
-    -webkit-background-clip:text;background-clip:text;color:transparent}
-  .hero p{margin-top:12px;font-size:14.5px;line-height:1.75;color:var(--sub)}
-  /* ---------- 输入卡 ---------- */
-  .card{margin-top:24px;background:var(--card);border:1px solid var(--card-border);border-radius:var(--radius);
-    backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);
-    box-shadow:0 24px 50px rgba(0,0,0,.45), inset 0 1px 0 rgba(255,255,255,.07);padding:18px}
-  .input-shell{background:rgba(0,0,0,.32);border:1px solid rgba(255,255,255,.09);border-radius:16px;padding:13px 14px;
-    transition:border-color .2s, box-shadow .2s}
-  .input-shell:focus-within{border-color:rgba(255,122,40,.65);box-shadow:0 0 0 4px rgba(255,73,6,.14)}
-  textarea{width:100%;border:none;outline:none;resize:none;background:transparent;color:var(--text);
-    font-size:15px;line-height:1.6;min-height:64px;font-family:inherit}
-  textarea::placeholder{color:var(--faint)}
-  .input-tools{display:flex;gap:9px;margin-top:11px}
-  .tool-btn{flex:none;display:inline-flex;align-items:center;gap:6px;font-size:13px;color:var(--sub);
-    background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.09);border-radius:999px;padding:8px 14px;cursor:pointer;
-    transition:background .15s,color .15s}
-  .tool-btn:active{background:rgba(255,255,255,.13);color:var(--text)}
-  .tool-btn svg{width:14px;height:14px}
-  .cta{position:relative;margin-top:16px;width:100%;border:none;cursor:pointer;border-radius:16px;padding:16px;
-    font-size:17px;font-weight:800;letter-spacing:2px;color:#fff;overflow:hidden;
-    background:linear-gradient(92deg,var(--brand2),var(--brand1) 55%,#f72c5b);
-    box-shadow:0 14px 30px rgba(255,73,6,.35), inset 0 1px 0 rgba(255,255,255,.35);
-    transition:transform .12s, box-shadow .2s, opacity .2s}
-  .cta:active{transform:scale(.985)}
-  .cta[disabled]{opacity:.65;pointer-events:none}
-  .cta::after{content:"";position:absolute;top:0;left:-70%;width:45%;height:100%;
-    background:linear-gradient(100deg,transparent,rgba(255,255,255,.35),transparent);transform:skewX(-18deg);
-    animation:shine 3.4s ease-in-out infinite}
-  @keyframes shine{0%,55%{left:-70%}85%,100%{left:130%}}
-  .spinner{display:inline-block;width:16px;height:16px;vertical-align:-3px;margin-right:8px;border-radius:50%;
-    border:2.5px solid rgba(255,255,255,.35);border-top-color:#fff;animation:spin .7s linear infinite}
-  @keyframes spin{to{transform:rotate(360deg)}}
-  .hint-row{display:flex;justify-content:space-between;align-items:center;margin-top:12px;font-size:12px;color:var(--faint)}
-  /* ---------- 步骤 ---------- */
-  .steps{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:20px}
-  .step{background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.07);border-radius:16px;padding:13px 10px;text-align:center}
-  .step .ic{font-size:19px}
-  .step .t{font-size:12.5px;font-weight:700;margin-top:6px}
-  .step .d{font-size:11px;color:var(--faint);margin-top:3px;line-height:1.5}
-  /* ---------- 结果 ---------- */
-  #result{display:none;margin-top:22px}
-  #result.show{display:block;animation:rise .45s cubic-bezier(.2,.9,.25,1)}
-  @keyframes rise{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:none}}
-  .res-card{overflow:hidden;border-radius:var(--radius);border:1px solid var(--card-border);background:var(--card);
-    backdrop-filter:blur(14px);box-shadow:0 24px 50px rgba(0,0,0,.45)}
-  .res-cover{position:relative;background:#000;max-height:420px;display:flex;justify-content:center}
-  .res-cover img{max-width:100%;max-height:420px;object-fit:contain;display:block}
-  .res-cover .badge{position:absolute;left:12px;top:12px;font-size:11px;font-weight:700;letter-spacing:1px;color:#fff;
-    background:rgba(255,73,6,.92);border-radius:999px;padding:5px 10px;box-shadow:0 6px 16px rgba(0,0,0,.35)}
-  .res-body{padding:16px 18px 18px}
-  .res-title{font-size:15.5px;line-height:1.65;font-weight:600;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
-  .res-author{margin-top:8px;font-size:12.5px;color:var(--sub)}
-  .res-author b{color:var(--brand3);font-weight:600}
-  .res-actions{display:flex;gap:10px;margin-top:16px}
-  .btn-dl{flex:1;border:none;cursor:pointer;border-radius:14px;padding:14px;font-size:15.5px;font-weight:800;letter-spacing:1px;color:#fff;
-    background:linear-gradient(92deg,var(--brand2),var(--brand1) 60%,#f72c5b);
-    box-shadow:0 10px 24px rgba(255,73,6,.32);display:inline-flex;align-items:center;justify-content:center;gap:8px;
-    transition:transform .12s}
-  .btn-dl:active{transform:scale(.98)}
-  .btn-ghost{flex:none;border:1px solid var(--card-border);background:rgba(255,255,255,.05);color:var(--sub);
-    border-radius:14px;padding:14px 16px;font-size:14px;cursor:pointer}
-  .btn-ghost:active{background:rgba(255,255,255,.12)}
-  .img-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:14px}
-  .img-grid figure{position:relative;border-radius:12px;overflow:hidden;background:#000}
-  .img-grid img{width:100%;height:110px;object-fit:cover;display:block}
-  .img-grid button{position:absolute;right:6px;bottom:6px;border:none;cursor:pointer;font-size:11px;font-weight:700;color:#fff;
-    background:rgba(255,73,6,.94);border-radius:999px;padding:5px 10px}
-  /* ---------- 底部弹层（下载提示框） ---------- */
-  .mask{position:fixed;inset:0;background:rgba(4,4,8,.62);backdrop-filter:blur(3px);z-index:40;
-    opacity:0;pointer-events:none;transition:opacity .25s}
-  .mask.show{opacity:1;pointer-events:auto}
-  .sheet{position:fixed;left:0;right:0;bottom:0;z-index:41;transform:translateY(105%);transition:transform .38s cubic-bezier(.25,.9,.3,1);
-    background:linear-gradient(180deg,#1b1b26,#12121c);border-radius:26px 26px 0 0;border:1px solid rgba(255,255,255,.1);border-bottom:none;
-    padding:14px 20px calc(20px + var(--safe-b));max-width:600px;margin:0 auto;
-    box-shadow:0 -18px 50px rgba(0,0,0,.55)}
-  .sheet.show{transform:none}
-  @media(min-width:640px){.sheet{border-radius:26px;bottom:24px;border-bottom:1px solid rgba(255,255,255,.1)}}
-  .grab{width:42px;height:5px;border-radius:99px;background:rgba(255,255,255,.22);margin:0 auto 16px}
-  .sheet-head{display:flex;gap:13px;align-items:center}
-  .sheet-head img{width:56px;height:56px;border-radius:13px;object-fit:cover;background:#000;flex:none}
-  .sheet-head .st{flex:1;min-width:0}
-  .sheet-head .st .t1{font-size:14.5px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-  .sheet-head .st .t2{font-size:12px;color:var(--sub);margin-top:4px}
-  .sheet-close{flex:none;width:32px;height:32px;border-radius:50%;border:1px solid rgba(255,255,255,.12);
-    background:rgba(255,255,255,.06);color:var(--sub);font-size:15px;cursor:pointer}
-  .prog{margin-top:18px;height:9px;border-radius:99px;background:rgba(255,255,255,.09);overflow:hidden}
-  .prog i{display:block;height:100%;width:0%;border-radius:99px;
-    background:linear-gradient(90deg,var(--brand3),var(--brand1),#f72c5b);transition:width .18s ease}
-  .prog-txt{display:flex;justify-content:space-between;font-size:12px;color:var(--sub);margin-top:8px}
-  .sheet .btn-dl{width:100%;margin-top:16px}
-  .sheet .btn-dl[disabled]{opacity:.55;pointer-events:none}
-  .sheet-fallback{margin-top:12px;text-align:center;font-size:12.5px;color:var(--faint)}
-  .sheet-fallback a{color:var(--brand3);text-decoration:none;font-weight:600}
-  /* ---------- 反馈 & 页脚 ---------- */
-  .foot{margin-top:30px;text-align:center;font-size:12px;color:var(--faint);line-height:1.9;padding:0 12px}
-  /* ---------- 可拖动反馈悬浮按钮 ---------- */
-  .fb-fab{position:fixed;right:14px;bottom:calc(104px + var(--safe-b));z-index:30;width:52px;height:52px;border-radius:50%;
-    border:1px solid rgba(255,255,255,.25);cursor:grab;touch-action:none;user-select:none;-webkit-user-select:none;
-    background:linear-gradient(135deg,var(--brand2),var(--brand1) 60%,#f72c5b);color:#fff;
-    box-shadow:0 12px 28px rgba(255,73,6,.42), inset 0 1px 0 rgba(255,255,255,.35);
-    display:grid;place-items:center}
-  .fb-fab:active{cursor:grabbing}
-  .fb-fab svg{width:23px;height:23px;pointer-events:none}
-  .fb-mask{align-items:flex-end;justify-content:center;display:flex}
-  .fb-box{background:linear-gradient(180deg,#1b1b26,#12121c);width:100%;max-width:600px;border-radius:26px 26px 0 0;
-    border:1px solid rgba(255,255,255,.1);padding:20px 20px calc(20px + var(--safe-b));transform:translateY(105%);transition:transform .38s cubic-bezier(.25,.9,.3,1)}
-  .mask.show .fb-box{transform:none}
-  .fb-box h3{font-size:16px;font-weight:800}
-  .fb-box p{font-size:12.5px;color:var(--sub);margin-top:6px;line-height:1.6}
-  .fb-box textarea{min-height:96px;background:rgba(0,0,0,.32);border:1px solid rgba(255,255,255,.1);border-radius:14px;
-    padding:12px;width:100%;margin-top:14px}
-  .fb-box input{width:100%;margin-top:10px;background:rgba(0,0,0,.32);border:1px solid rgba(255,255,255,.1);border-radius:14px;
-    padding:12px;color:var(--text);font-size:14px;outline:none;font-family:inherit}
-  /* ---------- Toast ---------- */
-  #toast{position:fixed;left:50%;top:calc(16px + env(safe-area-inset-top,0px));transform:translate(-50%,-16px);z-index:60;
-    max-width:min(92vw,480px);background:rgba(20,20,30,.92);border:1px solid rgba(255,255,255,.14);color:var(--text);
-    font-size:13.5px;line-height:1.55;padding:11px 16px;border-radius:14px;box-shadow:0 16px 40px rgba(0,0,0,.5);
-    opacity:0;pointer-events:none;transition:opacity .25s,transform .25s;backdrop-filter:blur(10px)}
-  #toast.show{opacity:1;transform:translate(-50%,0)}
-  #toast.err{border-color:rgba(255,110,90,.5)}
-  #toast.ok{border-color:rgba(61,220,132,.45)}
-</style>
-<style>
-.jxh{ --jxh-accent:#ff4906; --jxh-accent2:#ff8a3d; }
-/* ===== 历史解析（仅存本机浏览器 localStorage，各站独立 key） ===== */
-.jxh, .jxh *{ box-sizing:border-box; }
-.jxh-list{ grid-template-columns:minmax(0,1fr); }
-.jxh-item{ min-width:0; }
-.jxh{ margin-top:16px; background:rgba(13,13,20,.55); border:1px solid rgba(255,255,255,.11); border-radius:20px; padding:4px 14px; color:#f5f3ef; box-shadow:0 24px 50px rgba(0,0,0,.35), inset 0 1px 0 rgba(255,255,255,.07); backdrop-filter:blur(14px); -webkit-backdrop-filter:blur(14px); text-align:left; }
-.jxh-head{ display:flex; align-items:center; gap:8px; min-height:46px; }
-.jxh-toggle{ flex:1; min-width:0; display:flex; align-items:center; gap:8px; background:none; border:none; padding:10px 0; margin:0; color:#f5f3ef; font:inherit; font-size:14.5px; font-weight:700; cursor:pointer; text-align:left; -webkit-appearance:none; appearance:none; }
-.jxh-toggle .jxh-count{ font-size:11.5px; font-weight:600; color:var(--jxh-accent); background:rgba(255,255,255,.07); border:1px solid rgba(255,255,255,.1); border-radius:999px; padding:1px 8px; }
-.jxh-toggle .jxh-caret{ margin-left:auto; font-size:12px; font-weight:500; color:rgba(245,243,239,.62); transition:transform .2s; }
-.jxh.open .jxh-caret{ transform:rotate(180deg); }
-.jxh-clear{ flex:none; background:rgba(255,255,255,.06); border:1px solid rgba(255,255,255,.11); color:rgba(245,243,239,.62); font:inherit; font-size:12px; border-radius:999px; padding:6px 12px; margin:0; width:auto; height:auto; cursor:pointer; box-shadow:none; -webkit-appearance:none; appearance:none; }
-.jxh-clear.armed{ color:#fff; border-color:transparent; background:linear-gradient(92deg,var(--jxh-accent2),var(--jxh-accent)); }
-.jxh-clear[hidden], .jxh-body[hidden], .jxh-empty[hidden], .jxh-note-warn[hidden]{ display:none; }
-.jxh-body{ padding:0 0 12px; border-top:1px solid rgba(255,255,255,.07); }
-.jxh-note{ margin:10px 0 0; font-size:11.5px; line-height:1.6; color:rgba(245,243,239,.45); }
-.jxh-note-warn{ color:#ffcf6b; }
-.jxh-list{ list-style:none; margin:10px 0 0; padding:0; display:grid; gap:8px; }
-.jxh-item{ display:flex; gap:11px; padding:10px; border-radius:14px; background:rgba(255,255,255,.045); border:1px solid rgba(255,255,255,.07); }
-.jxh-cover{ flex:none; width:58px; height:58px; border-radius:10px; overflow:hidden; background:rgba(255,255,255,.07); display:grid; place-items:center; font-size:20px; color:rgba(245,243,239,.38); position:relative; }
-.jxh-cover img{ position:absolute; inset:0; width:100%; height:100%; object-fit:cover; }
-.jxh-main{ flex:1; min-width:0; }
-.jxh-title{ font-size:13.5px; font-weight:600; line-height:1.45; color:#f5f3ef; overflow:hidden; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; word-break:break-all; }
-.jxh-url{ margin-top:3px; font-size:11px; color:rgba(245,243,239,.38); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-.jxh-meta{ margin-top:2px; font-size:11px; color:rgba(245,243,239,.38); }
-.jxh-acts{ display:flex; flex-wrap:wrap; gap:6px; margin-top:8px; }
-.jxh-acts button, .jxh-acts a{ display:inline-flex; align-items:center; width:auto; height:auto; margin:0; padding:5px 10px; border-radius:999px; font:inherit; font-size:12px; line-height:1.3; text-decoration:none; cursor:pointer; color:rgba(245,243,239,.78); background:rgba(255,255,255,.07); border:1px solid rgba(255,255,255,.1); box-shadow:none; -webkit-appearance:none; appearance:none; }
-.jxh-acts .jxh-re{ color:#fff; border-color:transparent; background:linear-gradient(92deg,var(--jxh-accent2),var(--jxh-accent)); font-weight:600; }
-.jxh-acts .jxh-del{ color:rgba(245,243,239,.5); }
-.jxh-empty{ margin-top:12px; padding:16px 0 6px; text-align:center; font-size:12.5px; color:rgba(245,243,239,.38); }
-.jxh-msg{ font-size:12px; color:var(--jxh-accent); text-align:center; min-height:0; }
-.jxh-msg:not(:empty){ padding:0 0 10px; }
-
-/* press-anim-v2：解析按钮整颗按压 + 弹簧回弹 + 触点光圈（JS 加类驱动，不依赖 :active） */
-#btnParse{ position:relative; overflow:hidden; touch-action:manipulation; user-select:none; -webkit-user-select:none; will-change:transform; transform:translateZ(0) scale(1);
-  transition:transform .32s cubic-bezier(.34,1.56,.64,1), box-shadow .32s ease, filter .25s ease, opacity .2s; }
-#btnParse:active{ transform:translateZ(0) scale(1); }
-#btnParse.is-pressed{ transform:translateZ(0) translateY(1px) scale(.95); filter:brightness(.9) saturate(1.1);
-  box-shadow:0 4px 10px rgba(0,0,0,.4), inset 0 2px 6px rgba(0,0,0,.35); transition:transform .09s ease-out, box-shadow .09s ease-out, filter .09s ease-out; }
-#btnParse.is-release{ animation:pressSpringV2 .52s cubic-bezier(.2,.8,.2,1) both; }
-@keyframes pressSpringV2{
-  0%{ transform:translateZ(0) translateY(1px) scale(.95); }
-  35%{ transform:translateZ(0) translateY(-1px) scale(1.035); }
-  60%{ transform:translateZ(0) scale(.99); }
-  80%{ transform:translateZ(0) scale(1.008); }
-  100%{ transform:translateZ(0) scale(1); }
-}
-#btnParse .press-ripple{ position:absolute; border-radius:50%; pointer-events:none; transform:translate(-50%,-50%) scale(0);
-  background:radial-gradient(circle, rgba(255,255,255,.38) 0%, rgba(255,255,255,.12) 45%, rgba(255,255,255,0) 70%); animation:pressRippleV2 .6s ease-out forwards; }
-@keyframes pressRippleV2{ to{ transform:translate(-50%,-50%) scale(1); opacity:0; } }
-@media (prefers-reduced-motion: reduce){ #btnParse, #btnParse.is-pressed{ transition:none; } #btnParse.is-release{ animation:none; } #btnParse .press-ripple{ display:none; } }
-</style>
+<title>快手无水印解析下载</title>
+<meta name="description" content="粘贴快手分享链接，解析公开视频和图集，去掉水印后保存到这台设备。">
+<meta name="theme-color" content="#141415">
+<link rel="stylesheet" href="jiexi.css">
 </head>
 <body>
-<div class="bg"><div class="orb orb-a"></div><div class="orb orb-b"></div><div class="orb orb-c"></div></div>
-<div class="grain"></div>
-
-<div class="wrap">
-  <header>
-    <div class="logo" aria-hidden="true">
-      <svg viewBox="0 0 24 24" fill="none"><path d="M8.2 5.4v13.2c0 .9 1 1.5 1.8 1L19 13a1.2 1.2 0 0 0 0-2L10 4.4c-.8-.5-1.8.1-1.8 1Z" fill="#fff"/></svg>
+<div class="jx-wrap">
+  <header class="jx-top">
+    <svg class="jx-mark" viewBox="0 0 28 28" width="28" height="28" aria-hidden="true">
+      <path class="jx-mark-crop" d="M5 10V5h5M18 5h5v5M23 18v5h-5M10 23H5v-5" fill="none" stroke="currentColor" stroke-width="1.5"/>
+      <path class="jx-mark-play" d="M12 10.2v7.6l6.4-3.8-6.4-3.8z" fill="currentColor"/>
+    </svg>
+    <div class="jx-brand">
+      <div class="jx-brand-name">快手解析</div>
+      <div class="jx-brand-sub">无水印下载</div>
     </div>
-    <div>
-      <div class="brand-name">快手解析</div>
-      <div class="brand-sub">KUAISHOU · 无水印下载</div>
-    </div>
-    <div class="quota-chip" id="quotaChip" style="display:none">今日剩余 <b id="quotaLeft">–</b> 次</div>
+    <p class="jx-quota" id="quotaChip" style="display:none">今日剩余 <b id="quotaLeft">–</b> 次</p>
   </header>
 
-  <section class="hero">
-    <h1>粘贴链接<br>一键保存 <span class="grad">无水印视频</span></h1>
-    <p>在快手里点「分享 → 复制链接」，把整段分享文字粘到下面，剩下的交给我们。原画质、无水印，手机电脑都能下。</p>
-  </section>
-
-  <section class="card">
-    <div class="input-shell">
-      <textarea id="urlInput" rows="3" placeholder="把快手的分享链接粘贴到这里，例如：https://v.kuaishou.com/xxxxxx"></textarea>
-      <div class="input-tools">
-        <button class="tool-btn" id="btnPaste" type="button">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="8" y="2" width="8" height="4" rx="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/></svg>
-          粘贴
-        </button>
-        <button class="tool-btn" id="btnClear" type="button">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2m2 0v14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2V6"/></svg>
-          清空
-        </button>
+  <section class="jx-hero">
+    <div class="jx-lead">
+      <div class="jx-copy">
+        <h1>保存无水印的<br>快手视频</h1>
+        <p class="jx-sub">复制快手里的分享链接，粘到下面。公开的视频和图集都会去掉水印，再存到这台设备。</p>
       </div>
-    </div>
-    <div id="tsBox" style="margin-top:14px"></div>
-    <button class="cta" id="btnParse" type="button">开始解析</button>
-    <div class="hint-row"><span>支持 v.kuaishou.com 短链与完整分享文字</span><span>免费使用</span></div>
-  </section>
 
-  <section class="steps">
-    <div class="step"><div class="ic">📤</div><div class="t">复制链接</div><div class="d">快手 App 里分享<br>选择「复制链接」</div></div>
-    <div class="step"><div class="ic">✨</div><div class="t">粘贴解析</div><div class="d">贴到上方输入框<br>点「开始解析」</div></div>
-    <div class="step"><div class="ic">⬇️</div><div class="t">保存视频</div><div class="d">弹窗里点下载<br>无水印存到本地</div></div>
-  </section>
-
-  <section id="result">
-    <div class="res-card">
-      <div class="res-cover">
-        <img id="resCover" alt="视频封面" referrerpolicy="no-referrer">
-        <span class="badge">无水印</span>
-      </div>
-      <div class="res-body">
-        <div class="res-title" id="resTitle"></div>
-        <div class="res-author" id="resAuthor"></div>
-        <div class="res-actions">
-          <button class="btn-dl" id="btnDownload" type="button">
-            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M12 3v12m0 0 4.5-4.5M12 15 7.5 10.5M4 20h16"/></svg>
-            下载视频
-          </button>
-          <button class="btn-ghost" id="btnCopy" type="button">复制地址</button>
+      <div class="card">
+        <div class="jx-field">
+          <textarea id="urlInput" aria-label="快手分享链接" placeholder="粘贴快手分享链接，或整段分享文字"></textarea>
+          <div class="jx-field-tools">
+            <button type="button" class="btn ghost" id="btnPaste">粘贴</button>
+            <button type="button" class="btn ghost" id="btnClear">清空</button>
+          </div>
         </div>
-        <div class="img-grid" id="imgGrid" style="display:none"></div>
+        <div id="tsBox"></div>
+        <button type="button" class="btn" id="btnParse">开始解析</button>
+        <p class="hint">在快手 App 点「分享」，再点「复制链接」，把整段文字粘到这里<br>支持 v.kuaishou.com 短链。只解析公开作品，请勿用于侵权</p>
       </div>
     </div>
+
+    <aside class="jx-moment" aria-hidden="true">
+      <div class="ks-cam">
+        <div class="ks-lens"></div>
+        <div class="jx-still">
+          <span class="jx-crops"></span>
+          <svg class="jx-play" viewBox="0 0 24 24" width="32" height="32" aria-hidden="true"><path d="M9 7.2v9.6l8.4-4.8L9 7.2z" fill="currentColor"/></svg>
+        </div>
+      </div>
+      <p class="jx-strip-cap"><span>9:16</span><span>无水印</span></p>
+    </aside>
+  </section>
+
+  <section class="jx-steps" aria-label="使用步骤">
+    <ol>
+      <li>
+        <span class="jx-step-no">01</span>
+        <div>
+          <div class="jx-step-t">复制链接</div>
+          <div class="jx-step-d">在快手里点分享，选复制链接</div>
+        </div>
+      </li>
+      <li>
+        <span class="jx-step-no">02</span>
+        <div>
+          <div class="jx-step-t">粘贴解析</div>
+          <div class="jx-step-d">贴到上面的输入框，点开始解析</div>
+        </div>
+      </li>
+      <li>
+        <span class="jx-step-no">03</span>
+        <div>
+          <div class="jx-step-t">保存视频</div>
+          <div class="jx-step-d">点下载视频，在弹层里保存到本地</div>
+        </div>
+      </li>
+    </ol>
+  </section>
+
+  <section class="card" id="result">
+    <div class="res-still">
+      <img id="resCover" alt="视频封面" referrerpolicy="no-referrer">
+      <span class="jx-crops"></span>
+    </div>
+    <div class="title" id="resTitle"></div>
+    <div class="res-author" id="resAuthor"></div>
+    <div class="res-actions">
+      <button class="btn" id="btnDownload" type="button">下载视频</button>
+      <button class="btn ghost" id="btnCopy" type="button">复制地址</button>
+    </div>
+    <div class="grid" id="imgGrid" style="display:none"></div>
   </section>
 
   <!-- 历史解析：只存原链接 / 标题 / 封面 / 时间在本机浏览器，不上传、不存直链；直链会过期，需要时点「重新解析」 -->
   <section class="jxh" id="jxHist" aria-label="历史解析">
     <div class="jxh-head">
-      <button type="button" class="jxh-toggle" id="jxhToggle" aria-expanded="false" aria-controls="jxhBody">🕘 历史解析 <span class="jxh-count" id="jxhCount">0</span><span class="jxh-caret">▾</span></button>
+      <button type="button" class="jxh-toggle" id="jxhToggle" aria-expanded="false" aria-controls="jxhBody">历史解析 <span class="jxh-count" id="jxhCount">0</span><span class="jxh-caret" aria-hidden="true"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg></span></button>
       <button type="button" class="jxh-clear" id="jxhClear" hidden>清空历史</button>
     </div>
     <div class="jxh-body" id="jxhBody" hidden>
@@ -314,43 +110,45 @@
     <div class="jxh-msg" id="jxhMsg" aria-live="polite"></div>
   </section>
 
-  <footer class="foot">
+  <footer>
     本站仅供个人学习与收藏使用，视频版权归原作者所有，请勿用于商业用途。<br>
-    遇到问题，点屏幕上的 💬 悬浮按钮反馈（按钮可以按住拖动）
+    遇到问题，点右下角的反馈按钮。按钮可以按住拖动。
   </footer>
 </div>
 
 <button class="fb-fab" id="fbFab" type="button" aria-label="意见反馈">
-  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5Z"/></svg>
+  <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
 </button>
 
 <!-- 下载提示框 -->
 <div class="mask" id="sheetMask"></div>
 <div class="sheet" id="sheet" role="dialog" aria-modal="true" aria-label="下载视频">
-  <div class="grab"></div>
+  <div class="sheet-grab"></div>
   <div class="sheet-head">
     <img id="sheetCover" alt="" referrerpolicy="no-referrer">
     <div class="st">
       <div class="t1" id="sheetTitle">视频</div>
       <div class="t2" id="sheetSub">无水印 · 原画质</div>
     </div>
-    <button class="sheet-close" id="sheetClose" type="button" aria-label="关闭">✕</button>
+    <button class="sheet-close" id="sheetClose" type="button" aria-label="关闭">×</button>
   </div>
   <div class="prog"><i id="progBar"></i></div>
   <div class="prog-txt"><span id="progState">正在准备……</span><span id="progPct"></span></div>
-  <button class="btn-dl" id="btnSave" type="button" disabled>下载中……</button>
-  <div class="sheet-fallback">保存不了？<a href="#" id="sheetOpenLink">点此打开视频</a>，长按画面即可保存到相册</div>
+  <button class="btn" id="btnSave" type="button" disabled>下载中……</button>
+  <p class="hint sheet-fallback">保存不了？<a href="#" id="sheetOpenLink">点此打开视频</a>，长按画面即可保存到相册</p>
 </div>
 
 <!-- 反馈 -->
 <div class="mask fb-mask" id="fbMask">
   <div class="fb-box">
-    <h3>💬 意见反馈</h3>
+    <h3>意见反馈</h3>
     <p>解析失败、下载不了，或者有想加的功能，都可以写在这里。</p>
-    <textarea id="fbText" placeholder="写下你遇到的问题或建议……"></textarea>
-    <input id="fbContact" placeholder="联系方式（选填，方便回复你）">
-    <button class="btn-dl" id="fbSubmit" type="button" style="width:100%;margin-top:14px">提交反馈</button>
-    <button class="btn-ghost" id="fbCancel" type="button" style="width:100%;margin-top:10px">取消</button>
+    <textarea id="fbText" placeholder="写下你遇到的问题或建议"></textarea>
+    <input id="fbContact" placeholder="联系方式，选填">
+    <div class="row">
+      <button type="button" class="btn-ghost" id="fbCancel">取消</button>
+      <button type="button" class="btn-ok" id="fbSubmit">提交反馈</button>
+    </div>
   </div>
 </div>
 
@@ -442,7 +240,7 @@ async function parse() {
     renderResult(j);
     try { if (window.JiexiHistory) window.JiexiHistory.add({ url: url, title: j.title, cover: j.cover }); } catch(e){}
     refreshQuota();
-    toast('解析成功 🎉', 'ok');
+    toast('解析成功', 'ok');
   } catch (e) {
     toast(e.message || '解析失败，请稍后重试', 'err');
   } finally {
@@ -549,7 +347,7 @@ async function fetchToBlob(mediaUrl, filename) {
     $('progState').textContent = '下载完成，点下面按钮保存';
     const save = $('btnSave');
     save.disabled = false;
-    save.textContent = '💾 保存视频';
+    save.textContent = '保存视频';
   } catch (e) {
     $('progState').textContent = '下载失败';
     toast(e.message || '下载失败，请重试', 'err');
@@ -647,7 +445,7 @@ $('fbSubmit').addEventListener('click', async () => {
     if (!j || !j.ok) throw new Error((j && j.error) || '提交失败');
     $('fbText').value = ''; $('fbContact').value = '';
     $('fbMask').classList.remove('show');
-    toast('反馈已收到，谢谢！', 'ok');
+    toast('反馈已收到，谢谢', 'ok');
   } catch (e) { toast(e.message || '提交失败，请稍后重试', 'err'); }
   finally { btn.disabled = false; btn.textContent = '提交反馈'; }
 });
@@ -755,7 +553,7 @@ var JiexiHistoryCore = (function(){
     for (var i = 0; i < list.length; i++) {
       var e = list[i];
       h += '<li class="jxh-item">' +
-        '<div class="jxh-cover">🎞' + (e.cover ? '<img src="' + esc(e.cover) + '" alt="" loading="lazy" referrerpolicy="no-referrer">' : '') + '</div>' +
+        '<div class="jxh-cover">' + (e.cover ? '<img src="' + esc(e.cover) + '" alt="" loading="lazy" referrerpolicy="no-referrer">' : '') + '</div>' +
         '<div class="jxh-main">' +
           '<div class="jxh-title">' + esc(e.title || '（无标题）') + '</div>' +
           '<div class="jxh-url">' + esc(e.url) + '</div>' +
