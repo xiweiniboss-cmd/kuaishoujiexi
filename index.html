@@ -138,13 +138,34 @@
 
 <!-- 反馈 -->
 <div class="mask fb-mask" id="fbMask">
-  <div class="fb-box">
-    <h3>意见反馈</h3>
-    <p>解析失败、下载不了，或者有想加的功能，都可以写在这里。</p>
-    <textarea id="fbText" placeholder="写下你遇到的问题或建议"></textarea>
-    <input id="fbContact" placeholder="联系方式，选填">
-    <div class="row">
-      <button type="button" class="btn-ghost" id="fbCancel">取消</button>
+  <div class="fb-box" role="dialog" aria-modal="true" aria-labelledby="fbTitle">
+    <div class="fb-grab" aria-hidden="true"></div>
+    <div class="fb-head">
+      <div>
+        <div class="fb-kicker">只发给站长，不会公开</div>
+        <h3 id="fbTitle">问题反馈</h3>
+      </div>
+      <button type="button" class="fb-x" id="fbCancel" aria-label="关闭">×</button>
+    </div>
+    <p class="fb-lead">解析失败、下不下来、结果不对，说一下发生了什么就行。这站暂时不能传截图，把链接和报错写在下面。</p>
+    <div class="fb-chips" id="fbChips" role="group" aria-label="问题类型">
+      <button type="button" class="fb-chip" data-chip="解析失败">解析失败</button>
+      <button type="button" class="fb-chip" data-chip="下载失败">下载失败</button>
+      <button type="button" class="fb-chip" data-chip="还有水印">还有水印</button>
+      <button type="button" class="fb-chip" data-chip="视频有问题">视频有问题</button>
+      <button type="button" class="fb-chip" data-chip="其他">其他</button>
+    </div>
+    <label class="fb-field">
+      <span>怎么回事</span>
+      <textarea id="fbText" maxlength="2000" placeholder="例如：这条链接解析出来是空白，或者下载保存没反应。链接也可以直接贴在这里。"></textarea>
+      <em class="fb-count" id="fbCount">0 / 2000</em>
+    </label>
+    <label class="fb-field">
+      <span>怎么联系你 <i>可选</i></span>
+      <input id="fbContact" maxlength="120" placeholder="邮箱或社交账号" autocomplete="off">
+    </label>
+    <p class="fb-note" id="fbLinkNote" hidden>输入框里的链接会一起提交，方便对照是哪一条。</p>
+    <div class="fb-actions">
       <button type="button" class="btn-ok" id="fbSubmit">提交反馈</button>
     </div>
   </div>
@@ -416,7 +437,7 @@ function downloadMedia(url, filename, cover) { openSheet(url, filename, cover); 
   const end = () => {
     if (!dragging) return;
     dragging = false;
-    if (!moved) { $('fbMask').classList.add('show'); return; }
+    if (!moved) { window.fbOpen(); return; }
     const r = fab.getBoundingClientRect();
     const x = r.left + r.width / 2 < window.innerWidth / 2 ? 10 : window.innerWidth - r.width - 10;
     fab.style.transition = 'left .25s ease';
@@ -429,11 +450,42 @@ function downloadMedia(url, filename, cover) { openSheet(url, filename, cover); 
 })();
 
 /* ============ 反馈 ============ */
-$('fbCancel').addEventListener('click', () => $('fbMask').classList.remove('show'));
-$('fbMask').addEventListener('click', (e) => { if (e.target === $('fbMask')) $('fbMask').classList.remove('show'); });
+let fbKind = '';
+function fbSyncCount(){ $('fbCount').textContent = $('fbText').value.length + ' / 2000'; }
+function fbLinkNote(){
+  const raw = ($('urlInput').value || '').trim();
+  $('fbLinkNote').hidden = !/https?:\/\//i.test(raw);
+}
+function fbClose(){
+  $('fbMask').classList.remove('show');
+  document.body.style.overflow = '';
+}
+window.fbOpen = function(){
+  fbLinkNote();
+  fbSyncCount();
+  $('fbMask').classList.add('show');
+  document.body.style.overflow = 'hidden';
+  setTimeout(() => $('fbText').focus(), 40);
+};
+$('fbCancel').addEventListener('click', fbClose);
+$('fbMask').addEventListener('click', (e) => { if (e.target === $('fbMask')) fbClose(); });
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && $('fbMask').classList.contains('show')) fbClose();
+});
+$('fbText').addEventListener('input', fbSyncCount);
+$('fbChips').addEventListener('click', (e) => {
+  const b = e.target.closest && e.target.closest('.fb-chip');
+  if (!b) return;
+  const v = b.getAttribute('data-chip');
+  fbKind = fbKind === v ? '' : v;
+  document.querySelectorAll('.fb-chip').forEach((x) => x.classList.toggle('on', x.getAttribute('data-chip') === fbKind));
+});
 $('fbSubmit').addEventListener('click', async () => {
-  const message = $('fbText').value.trim();
-  if (!message) { toast('先写点内容再提交吧', 'err'); return; }
+  let message = $('fbText').value.trim();
+  if (!message && !fbKind) { toast('先写一下遇到了什么，或选一个问题类型', 'err'); $('fbText').focus(); return; }
+  if (fbKind) message = '【' + fbKind + '】\n' + (message || '（未写具体描述）');
+  const raw = ($('urlInput').value || '').trim();
+  if (/https?:\/\//i.test(raw)) message += '\n\n当前输入：\n' + raw.slice(0, 800);
   const btn = $('fbSubmit');
   btn.disabled = true; btn.textContent = '提交中……';
   try {
@@ -445,7 +497,10 @@ $('fbSubmit').addEventListener('click', async () => {
     const j = await resp.json().catch(() => null);
     if (!j || !j.ok) throw new Error((j && j.error) || '提交失败');
     $('fbText').value = ''; $('fbContact').value = '';
-    $('fbMask').classList.remove('show');
+    fbKind = '';
+    document.querySelectorAll('.fb-chip').forEach((x) => x.classList.remove('on'));
+    fbSyncCount();
+    fbClose();
     toast('反馈已收到，谢谢', 'ok');
   } catch (e) { toast(e.message || '提交失败，请稍后重试', 'err'); }
   finally { btn.disabled = false; btn.textContent = '提交反馈'; }
