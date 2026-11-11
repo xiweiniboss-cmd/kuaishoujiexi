@@ -4,7 +4,8 @@
 //          + 快手分享页 HTML 提取 srcNoMark（兜底，无需 key）
 // 需要环境变量 REDFOX_API_KEY（与其他解析站共用同一个 key）
 // 反馈/限流（可选）：KV 绑定 FEEDBACK_KV，与其他站共用；未绑定时自动跳过
-// 人机验证（可选）：TURNSTILE_SECRET_KEY，配了才校验
+// 人机验证（可选）：TURNSTILE_SITE_KEY（公开，经 /api/turnstile-key 下发）+ TURNSTILE_SECRET_KEY（保密），配了 secret 才校验；
+//   没配时只按 IP 冷却 60 秒 + 每天 20 次（IP 和设备各算一份）
 
 const REDFOX_BASE = 'https://redfox.hk';
 const UA_MOBILE =
@@ -108,7 +109,11 @@ async function resolveShortLink(url) {
       const loc = resp.headers.get('location');
       await resp.arrayBuffer().catch(() => {});
       if (resp.status >= 300 && resp.status < 400 && loc) {
-        cur = new URL(loc, cur).toString();
+        const next = new URL(loc, cur).toString();
+        let nh = '';
+        try { nh = new URL(next).hostname; } catch {}
+        if (!isKsHost(nh)) return cur; // 跳去别的域名就停，不当任意网址抓取器
+        cur = next;
         continue;
       }
       return cur;
@@ -305,35 +310,72 @@ async function parseViaScrape(shareText) {
 }
 
 // ---------- 频控 / 配额（KV 可选） ----------
+// 以 IP 为准（cf-connecting-ip，前端改不了），设备号只作为附加维度：
+//   - 冷却：同一 IP 60 秒内只能成功解析一次
+//   - 日限额：同一 IP 每天 20 次；带了设备号时该设备也各算 20 次（两者任一用完就拦）
+// 键名都带 kuaishou 前缀，不和其他站共用（以前各站共用 pcool_<IP> 会互相误伤）
+const PARSE_COOLDOWN_SECS = 60;
 function todayStr() {
   return new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10);
 }
-async function checkRate(env, device) {
+function clientIp(request) {
+  return request.headers.get('cf-connecting-ip') || '';
+}
+function quotaKeys(ip, device) {
+  const keys = [];
+  if (ip) keys.push('dlimit_kuaishou_ip_' + ip + '_' + todayStr());
+  if (device) keys.push('quota_kuaishou_' + todayStr() + '_' + device);
+  return keys;
+}
+async function checkRate(env, ip, device) {
   const kv = env.FEEDBACK_KV;
-  if (!kv || !device) return { ok: true };
+  if (!kv) return { ok: true };
   try {
-    const cdKey = 'cd_parse_kuaishou_' + device;
-    if (await kv.get(cdKey)) return { ok: false, error: '操作太频繁，请等 60 秒后再解析' };
-    const qKey = 'quota_kuaishou_' + todayStr() + '_' + device;
-    const used = parseInt((await kv.get(qKey)) || '0', 10) || 0;
-    if (used >= DAILY_LIMIT) return { ok: false, error: '今日解析次数已达上限（' + DAILY_LIMIT + ' 次），明天再来吧' };
-    return { ok: true, used };
+    if (ip) {
+      const lastTs = await kv.get('pcool_kuaishou_' + ip);
+      if (lastTs) {
+        const remain = PARSE_COOLDOWN_SECS - Math.floor((Date.now() - Number(lastTs)) / 1000);
+        if (remain > 0) return { ok: false, error: '解析太频繁，请 ' + remain + ' 秒后再试' };
+      }
+    } else if (device && (await kv.get('cd_parse_kuaishou_' + device))) {
+      return { ok: false, error: '操作太频繁，请等 60 秒后再解析' };
+    }
+    for (const k of quotaKeys(ip, device)) {
+      const used = parseInt((await kv.get(k)) || '0', 10) || 0;
+      if (used >= DAILY_LIMIT) return { ok: false, error: '今日解析次数已达上限（' + DAILY_LIMIT + ' 次），明天再来吧' };
+    }
+    return { ok: true };
   } catch {
     return { ok: true };
   }
 }
-async function markParse(env, device) {
+async function markParse(env, request, ip, device) {
   const kv = env.FEEDBACK_KV;
   if (!kv) return;
   try {
     await kv.put('stats_parse_kuaishou', String((parseInt((await kv.get('stats_parse_kuaishou')) || '0', 10) || 0) + 1));
   } catch {}
-  if (!device) return;
   try {
-    await kv.put('cd_parse_kuaishou_' + device, '1', { expirationTtl: 60 });
-    const qKey = 'quota_kuaishou_' + todayStr() + '_' + device;
-    const used = parseInt((await kv.get(qKey)) || '0', 10) || 0;
-    await kv.put(qKey, String(used + 1), { expirationTtl: 60 * 60 * 26 });
+    if (ip) await kv.put('pcool_kuaishou_' + ip, String(Date.now()), { expirationTtl: PARSE_COOLDOWN_SECS });
+    if (device) await kv.put('cd_parse_kuaishou_' + device, '1', { expirationTtl: 60 });
+    for (const k of quotaKeys(ip, device)) {
+      const used = parseInt((await kv.get(k)) || '0', 10) || 0;
+      await kv.put(k, String(used + 1), { expirationTtl: 60 * 60 * 48 });
+    }
+  } catch {}
+  // 数据总览：地区分布 + 最近解析（与其他站同一套键名，统一后台能看到快手）
+  const cf = request.cf || {};
+  const cc = String(cf.country || 'XX').toUpperCase().replace(/[^A-Z]/g, '').slice(0, 2) || 'XX';
+  try {
+    const gk = 'geoparse_kuaishou_' + cc;
+    await kv.put(gk, String((Number(await kv.get(gk)) || 0) + 1));
+  } catch {}
+  try {
+    let hist = [];
+    try { hist = JSON.parse((await kv.get('parsehist_kuaishou')) || '[]'); } catch {}
+    if (!Array.isArray(hist)) hist = [];
+    hist.unshift({ t: Date.now(), ip, dev: device || '', cc, region: cf.region || '', city: cf.city || '' });
+    await kv.put('parsehist_kuaishou', JSON.stringify(hist.slice(0, 20)));
   } catch {}
 }
 
@@ -342,29 +384,38 @@ async function handleParse(request, env) {
   let shareText = '';
   let tsToken = '';
   let device = '';
+  const u = new URL(request.url);
   if (request.method === 'POST') {
     try {
       const body = await request.json();
       shareText = String(body.url || body.text || '');
-      tsToken = String(body.tsToken || body['cf-turnstile-response'] || '');
+      tsToken = String(body.tsToken || body.turnstile || body['cf-turnstile-response'] || '');
       device = String(body.device || '').replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 64);
     } catch {}
   }
   if (!shareText) {
-    const u = new URL(request.url);
     shareText = u.searchParams.get('url') || '';
     device = (u.searchParams.get('device') || '').replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 64);
   }
+  if (!tsToken) tsToken = u.searchParams.get('turnstile') || '';
   if (!shareText.trim()) return json({ ok: false, error: '请先粘贴快手分享链接' }, 400);
+  // 先在本地判断链接，明显不对的直接 400，不去碰上游
+  const rawUrl = extractKsUrl(shareText);
+  if (!rawUrl) return json({ ok: false, error: '没找到有效的链接，请粘贴快手分享链接' }, 400);
+  let host = '';
+  try { host = new URL(rawUrl).hostname; } catch {}
+  if (!isKsHost(host)) return json({ ok: false, error: '这不是快手链接，请检查后重试' }, 400);
 
+  // 人机验证：配了 TURNSTILE_SECRET_KEY 才校验（没配就只走 IP 频控）
   const secret = (env.TURNSTILE_SECRET_KEY || '').trim();
+  const ip = clientIp(request);
   if (secret) {
-    const ip = request.headers.get('cf-connecting-ip') || '';
+    if (!tsToken) return json({ ok: false, error: '请先完成人机验证' }, 400);
     if (!(await verifyTurnstile(tsToken, secret, ip)))
-      return json({ ok: false, error: '人机验证未通过，请刷新页面重试' }, 403);
+      return json({ ok: false, error: '人机验证未通过，请重试' }, 403);
   }
 
-  const rate = await checkRate(env, device);
+  const rate = await checkRate(env, ip, device);
   if (!rate.ok) return json({ ok: false, error: rate.error }, 429);
 
   const apiKey = (env.REDFOX_API_KEY || '').trim();
@@ -386,7 +437,7 @@ async function handleParse(request, env) {
       return json({ ok: false, error: msg }, 502);
     }
   }
-  await markParse(env, device);
+  await markParse(env, request, ip, device);
   return json({ ok: true, ...result });
 }
 
@@ -395,9 +446,11 @@ async function handleQuota(request, env) {
   const kv = env.FEEDBACK_KV;
   const u = new URL(request.url);
   const device = (u.searchParams.get('device') || '').replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 64);
-  if (!kv || !device) return json({ ok: true, limited: false, limit: DAILY_LIMIT, remaining: DAILY_LIMIT });
+  const keys = quotaKeys(clientIp(request), device);
+  if (!kv || !keys.length) return json({ ok: true, limited: false, limit: DAILY_LIMIT, remaining: DAILY_LIMIT });
   try {
-    const used = parseInt((await kv.get('quota_kuaishou_' + todayStr() + '_' + device)) || '0', 10) || 0;
+    let used = 0;
+    for (const k of keys) used = Math.max(used, parseInt((await kv.get(k)) || '0', 10) || 0);
     return json({ ok: true, limited: true, limit: DAILY_LIMIT, used, remaining: Math.max(0, DAILY_LIMIT - used) });
   } catch {
     return json({ ok: true, limited: false, limit: DAILY_LIMIT, remaining: DAILY_LIMIT });
@@ -415,9 +468,9 @@ async function handleDl(request) {
   } catch {
     return json({ ok: false, error: '无效的下载地址' }, 400);
   }
-  const allowed =
-    /(^|\.)yximgs\.com$|(^|\.)kwimgs\.com$|(^|\.)kwaicdn\.com$|(^|\.)kuaishou\.com$|(^|\.)gifshow\.com$|(^|\.)chenzhongtech\.com$|(^|\.)kuaishouapp\.com$/i;
-  if (!/^https:$/.test(target.protocol) || !allowed.test(target.hostname))
+  const DL_HOSTS = ['yximgs.com', 'kwimgs.com', 'kwaicdn.com', 'kuaishou.com', 'gifshow.com', 'chenzhongtech.com', 'kuaishouapp.com'];
+  const th = target.hostname.toLowerCase();
+  if (!/^https:$/.test(target.protocol) || !DL_HOSTS.some((d) => th === d || th.endsWith('.' + d)))
     return json({ ok: false, error: '不支持的下载地址' }, 400);
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), 90000);
@@ -442,38 +495,52 @@ async function handleDl(request) {
   }
 }
 
-// ---------- 反馈（与其他站共用 FEEDBACK_KV，带 [快手站] 标记） ----------
+// ---------- 反馈（与其他站共用 FEEDBACK_KV，键名 fb_<id>，字段与其他站一致，统一后台 /admin 可见） ----------
 async function handleFeedback(request, env) {
   if (!env.FEEDBACK_KV) return json({ ok: false, error: '反馈功能暂未启用' }, 500);
   let message = '',
     contact = '',
-    device = '';
+    device = '',
+    page = '',
+    tsToken = '';
   try {
     const body = await request.json();
     message = String(body.message || '').trim().slice(0, 2000);
     contact = String(body.contact || '').trim().slice(0, 120);
     device = String(body.device || '').replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 64);
+    page = String(body.page || '').slice(0, 200);
+    tsToken = String(body.tsToken || body['cf-turnstile-response'] || '');
   } catch {}
   if (!message) return json({ ok: false, error: '请先写点内容再提交' }, 400);
+  const secret = (env.TURNSTILE_SECRET_KEY || '').trim();
+  const ip = clientIp(request);
+  if (secret) {
+    if (!tsToken) return json({ ok: false, error: '请先完成人机验证' }, 400);
+    if (!(await verifyTurnstile(tsToken, secret, ip))) return json({ ok: false, error: '人机验证未通过，请重试' }, 403);
+  }
   const kv = env.FEEDBACK_KV;
+  const cdKey = ip ? 'cool_kuaishou_' + ip : device ? 'cd_feedback_' + device : '';
   try {
-    if (device && (await kv.get('cd_feedback_' + device)))
-      return json({ ok: false, error: '提交太频繁，请 10 分钟后再试' }, 429);
+    if (cdKey && (await kv.get(cdKey))) return json({ ok: false, error: '提交太频繁，请 10 分钟后再试' }, 429);
   } catch {}
-  const id = 'fb_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+  const id = 'fb_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 8);
+  if (!/^https?:\/\//.test(page)) page = 'https://kuaishoujiexi.pages.dev/';
+  const cf = request.cf || {};
   const rec = {
     id,
-    site: '[快手站]',
     message,
     contact,
-    page: 'kuaishoujiexi',
+    page,
+    attachments: [],
     device,
-    ts: Date.now(),
-    files: [],
+    ua: (request.headers.get('user-agent') || '').slice(0, 200),
+    ip,
+    geo: { country: cf.country || '', region: cf.region || '', city: cf.city || '' },
+    time: new Date().toISOString(),
   };
   try {
-    await kv.put('feedback_' + id, JSON.stringify(rec));
-    if (device) await kv.put('cd_feedback_' + device, '1', { expirationTtl: 600 });
+    await kv.put(id, JSON.stringify(rec));
+    if (cdKey) await kv.put(cdKey, '1', { expirationTtl: 600 });
   } catch {
     return json({ ok: false, error: '提交失败，请稍后重试' }, 500);
   }
@@ -489,7 +556,16 @@ export default {
     if (url.pathname === '/api/quota' && request.method === 'GET') return handleQuota(request, env);
     if (url.pathname === '/api/dl' && request.method === 'GET') return handleDl(request);
     if (url.pathname === '/api/feedback' && request.method === 'POST') return handleFeedback(request, env);
-    if (url.pathname === '/api/health') return json({ ok: true, redfox: !!(env.REDFOX_API_KEY || '').trim() });
+    // Turnstile 公开 site key（没配就返回空，前端据此跳过人机验证）
+    if (url.pathname === '/api/turnstile-key')
+      return json({ ok: true, siteKey: (env.TURNSTILE_SITE_KEY || '').trim(), required: !!(env.TURNSTILE_SECRET_KEY || '').trim() });
+    if (url.pathname === '/api/stats') {
+      if (!env.FEEDBACK_KV) return json({ ok: true, bound: false, parseCount: null, error: '未绑定 KV' });
+      let n = null;
+      try { n = Number((await env.FEEDBACK_KV.get('stats_parse_kuaishou')) || 0); } catch {}
+      return json({ ok: true, bound: true, parseCount: n });
+    }
+    if (url.pathname === '/api/health') return json({ ok: true });
     if (url.pathname.startsWith('/api/')) return json({ ok: false, error: '接口不存在' }, 404);
     return env.ASSETS.fetch(request);
   },

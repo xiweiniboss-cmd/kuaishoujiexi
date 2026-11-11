@@ -6,6 +6,16 @@
 <title>快手无水印解析下载</title>
 <meta name="description" content="粘贴快手分享链接，解析公开视频和图集，去掉水印后保存到这台设备。">
 <meta name="theme-color" content="#141415">
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%23141415'/%3E%3Cpath d='M14 24V14h10M40 14h10v10M50 40v10H40M24 50H14V40' fill='none' stroke='%23FF7A1A' stroke-width='4'/%3E%3Cpath d='M27 22v20l16-10z' fill='%23FF7A1A'/%3E%3C/svg%3E">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="快手无水印解析下载">
+<meta property="og:title" content="快手无水印解析下载">
+<meta property="og:description" content="粘贴快手分享链接，解析公开视频和图集，去掉水印后保存到这台设备。">
+<meta property="og:url" content="https://kuaishoujiexi.pages.dev/">
+<meta property="og:locale" content="zh_CN">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:title" content="快手无水印解析下载">
+<meta name="twitter:description" content="粘贴快手分享链接，解析公开视频和图集，去掉水印后保存到这台设备。">
 <link rel="stylesheet" href="jiexi.css">
 </head>
 <body>
@@ -165,6 +175,7 @@
       <input id="fbContact" maxlength="120" placeholder="邮箱或社交账号" autocomplete="off">
     </label>
     <p class="fb-note" id="fbLinkNote" hidden>输入框里的链接会一起提交，方便对照是哪一条。</p>
+    <div id="fbTsBox" style="display:none;margin:8px 0"></div>
     <div class="fb-actions">
       <button type="button" class="btn-ok" id="fbSubmit">提交反馈</button>
     </div>
@@ -177,7 +188,6 @@
 'use strict';
 /* ============ 基础 ============ */
 const $ = (id) => document.getElementById(id);
-const TS_SITEKEY = ''; // 如需开启 Turnstile，把站点公钥填这里（后端配 TURNSTILE_SECRET_KEY 后生效）
 // 浏览器禁用 / 隐私模式下 localStorage 可能直接抛错：读失败当作没有，写失败忽略，不影响解析
 let deviceId = null;
 try { deviceId = localStorage.getItem('ks_device'); } catch { deviceId = null; }
@@ -198,20 +208,72 @@ function extractUrl(text) {
   return m ? m[0].replace(/[.,;!?\]]+$/, '') : '';
 }
 
-/* Turnstile（可选） */
-let tsToken = '';
-if (TS_SITEKEY) {
-  const s = document.createElement('script');
-  s.src = 'https://challenges.cloudflare.com/turnstile/v0/api.js';
-  s.async = true; s.defer = true;
-  document.head.appendChild(s);
-  const box = document.createElement('div');
-  box.className = 'cf-turnstile';
-  box.setAttribute('data-sitekey', TS_SITEKEY);
-  box.setAttribute('data-callback', 'onTsOk');
-  $('tsBox').appendChild(box);
-  window.onTsOk = (tok) => { tsToken = tok; };
-}
+/* Turnstile（可选，懒加载）：公钥由后端 /api/turnstile-key 下发（Pages 变量 TURNSTILE_SITE_KEY），没配就跳过 */
+/* 人机验证（懒加载）：首屏不加载 Turnstile，用户第一次点「开始解析」（或打开反馈）时才拉脚本并渲染。
+   站点公钥从 /api/turnstile-key 取；后端没配公钥时返回空，这里就直接放行（后端也不会校验）。
+   脚本全页只加载一次（重复引入会卡死组件）；每个需要验证的位置用 JxTs.make() 各自一个组件。 */
+var JxTs = (function(){
+  var keyP = null, scriptP = null;
+  function siteKey(){
+    if (!keyP) keyP = fetch('/api/turnstile-key').then(function(r){ return r.json(); })
+      .then(function(j){ return (j && j.ok && j.siteKey) ? String(j.siteKey) : ''; })
+      .catch(function(){ keyP = null; return ''; });
+    return keyP;
+  }
+  function script(){
+    if (window.turnstile) return Promise.resolve();
+    if (!scriptP) scriptP = new Promise(function(resolve, reject){
+      var s = document.createElement('script');
+      s.src = 'https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit';
+      s.async = true;
+      s.onload = function(){ resolve(); };
+      s.onerror = function(){ scriptP = null; reject(new Error('人机验证组件加载失败，请检查网络后重试')); };
+      document.head.appendChild(s);
+    });
+    return scriptP;
+  }
+  function make(boxId){
+    var wid = null, waiters = [];
+    function flush(ok, val){ var w = waiters; waiters = []; w.forEach(function(f){ ok ? f[0](val) : f[1](val); }); }
+    // 取一个可用 token：需要时渲染组件并等验证完成；后端没配公钥时返回 ''
+    function token(){
+      return siteKey().then(function(k){
+        if (!k) return '';
+        return script().then(function(){
+          return new Promise(function(resolve, reject){
+            var timer = setTimeout(function(){ reject(new Error('人机验证超时，请完成验证后再点一次')); }, 120000);
+            var done = function(t){ clearTimeout(timer); resolve(t); };
+            var fail = function(e){ clearTimeout(timer); reject(e || new Error('人机验证未通过，请再点一次')); };
+            if (wid === null) {
+              var box = document.getElementById(boxId);
+              if (!box) { fail(new Error('人机验证组件加载失败，请刷新页面重试')); return; }
+              box.style.display = '';
+              try {
+                wid = turnstile.render(box, {
+                  sitekey: k, theme: 'dark', language: 'zh-cn',
+                  callback: function(t){ flush(true, t); },
+                  'error-callback': function(){ flush(false, new Error('人机验证出错，请再点一次')); return true; },
+                  'expired-callback': function(){ try { turnstile.reset(wid); } catch (e) {} }
+                });
+              } catch (e) { fail(new Error('人机验证组件加载失败，请刷新页面重试')); return; }
+            } else {
+              var cur = '';
+              try { cur = turnstile.getResponse(wid) || ''; } catch (e) {}
+              if (cur) { done(cur); return; }
+            }
+            waiters.push([done, fail]);
+          });
+        });
+      });
+    }
+    // token 只能用一次：请求发出后重置，下次会重新验证（通常无感自动完成）
+    function used(){ if (wid !== null) { try { turnstile.reset(wid); } catch (e) {} } }
+    return { token: token, used: used };
+  }
+  return { siteKey: siteKey, script: script, make: make };
+})();
+const JxTsParse = JxTs.make('tsBox');
+const JxTsFb = JxTs.make('fbTsBox');
 
 /* ============ 配额 ============ */
 async function refreshQuota() {
@@ -245,9 +307,13 @@ async function parse() {
   if (!url) { toast('先粘贴一个快手分享链接吧', 'err'); $('urlInput').focus(); return; }
   if (!/kuaishou|gifshow/i.test(url)) { toast('这好像不是快手链接，检查一下再试', 'err'); return; }
   const btn = $('btnParse');
+  if (btn.disabled) return;
   btn.disabled = true;
-  btn.innerHTML = '<span class="spinner"></span>解析中……';
+  btn.textContent = '人机验证中……';
   try {
+    const tsToken = await JxTsParse.token();
+    btn.innerHTML = '<span class="spinner"></span>解析中……';
+    JxTsParse.used();
     const resp = await fetch('/api/parse', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -489,10 +555,12 @@ $('fbSubmit').addEventListener('click', async () => {
   const btn = $('fbSubmit');
   btn.disabled = true; btn.textContent = '提交中……';
   try {
+    const tsToken = await JxTsFb.token();
+    JxTsFb.used();
     const resp = await fetch('/api/feedback', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ message, contact: $('fbContact').value.trim(), device: deviceId }),
+      body: JSON.stringify({ message, contact: $('fbContact').value.trim(), device: deviceId, page: location.href, tsToken }),
     });
     const j = await resp.json().catch(() => null);
     if (!j || !j.ok) throw new Error((j && j.error) || '提交失败');
