@@ -14,12 +14,75 @@ const UA_PC =
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36';
 const DAILY_LIMIT = 20;
 
+/* ================= 安全辅助：IP 归一 / CORS 白名单 / 跳转逐跳校验 ================= */
+// 限流用的 IP 键：IPv4 原样；IPv6 归一到 /64（同一用户通常独占一个 /64，换后 64 位就能拿新配额）
+function ipLimitKey(ip) {
+  ip = String(ip || '').trim().toLowerCase();
+  if (!ip.includes(':')) return ip;
+  let s = ip.split('%')[0];
+  const v4 = s.match(/(\d{1,3}(?:\.\d{1,3}){3})$/);
+  if (v4 && /^::(ffff:)?[\d.]+$/.test(s)) return v4[1]; // IPv4-mapped，按 IPv4 算
+  if (v4) s = s.slice(0, -v4[1].length) + '0:0';
+  const halves = s.split('::');
+  const head = halves[0] ? halves[0].split(':') : [];
+  let parts = head;
+  if (halves.length > 1) {
+    const tail = halves[1] ? halves[1].split(':') : [];
+    parts = head.concat(Array(Math.max(0, 8 - head.length - tail.length)).fill('0'), tail);
+  }
+  parts = parts.slice(0, 4).map((x) => (parseInt(x || '0', 16) || 0).toString(16));
+  while (parts.length < 4) parts.push('0');
+  return parts.join(':') + '::/64';
+}
+function clientIpKey(request) {
+  return ipLimitKey(request.headers.get('cf-connecting-ip') || '');
+}
+
+// CORS：只给本站来源回显 Origin（同源、站点 pages.dev 域名及其预览子域、环境变量 ALLOWED_ORIGINS 里的自定义域名）
+const SITE_ORIGINS = ["https://kuaishoujiexi.pages.dev"];
+function originAllowed(origin, request, env) {
+  if (!origin) return false;
+  let o;
+  try { o = new URL(origin); } catch { return false; }
+  if (origin === new URL(request.url).origin) return true;
+  const extra = String((env && env.ALLOWED_ORIGINS) || '').split(',').map((s) => s.trim().replace(/\/+$/, '')).filter(Boolean);
+  if (SITE_ORIGINS.includes(origin) || extra.includes(origin)) return true;
+  return o.protocol === 'https:' && SITE_ORIGINS.some((s) => o.hostname.endsWith('.' + new URL(s).hostname));
+}
+function applyCors(request, env, resp) {
+  if (!resp || !new URL(request.url).pathname.startsWith('/api/')) return resp;
+  const origin = request.headers.get('Origin') || '';
+  const r = new Response(resp.body, resp);
+  r.headers.delete('Access-Control-Allow-Origin');
+  if (originAllowed(origin, request, env)) r.headers.set('Access-Control-Allow-Origin', origin);
+  r.headers.append('Vary', 'Origin');
+  return r;
+}
+
+// 代理抓取：手动跟随跳转（最多 maxHops 次），每一跳都只允许 https + 白名单域名，否则返回 null
+async function fetchAllowedHops(url, init, isAllowed, maxHops = 5) {
+  let cur = String(url);
+  for (let hop = 0; hop <= maxHops; hop++) {
+    let u;
+    try { u = new URL(cur); } catch { return null; }
+    if (u.protocol !== 'https:' || !isAllowed(u.hostname)) return null;
+    const resp = await fetch(u.toString(), { ...init, redirect: 'manual' });
+    const loc = resp.headers.get('location');
+    if (resp.status >= 300 && resp.status < 400 && loc) {
+      try { if (resp.body) await resp.body.cancel(); } catch {}
+      try { cur = new URL(loc, u).toString(); } catch { return null; }
+      continue;
+    }
+    return resp;
+  }
+  return null;
+}
+
 function json(data, status = 200) {
   return new Response(JSON.stringify(data), {
     status,
     headers: {
       'Content-Type': 'application/json; charset=utf-8',
-      'Access-Control-Allow-Origin': '*',
       'Cache-Control': 'no-store',
     },
   });
@@ -273,14 +336,16 @@ async function parseViaScrape(shareText) {
   } catch {}
   if (!isKsHost(host)) throw new Error('这不是快手链接，请检查后重试');
   const finalUrl = await resolveShortLink(rawUrl);
-  const pageUrl = canonicalKsUrl(finalUrl) || finalUrl;
+  const pageUrl = ensureHttps(canonicalKsUrl(finalUrl) || finalUrl);
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), 20000);
   try {
-    const resp = await fetch(pageUrl, {
+    // 手动跟随跳转，每一跳都只允许 https + 快手域名（以前自动跟随，可能被带去任意地址）
+    const resp = await fetchAllowedHops(pageUrl, {
       headers: { 'User-Agent': UA_MOBILE, Referer: 'https://www.kuaishou.com/', Accept: 'text/html' },
       signal: ctrl.signal,
-    });
+    }, isKsHost, 5);
+    if (!resp) throw new Error('快手页面跳转到了不支持的地址');
     if (!resp.ok) throw new Error('快手页面打开失败（HTTP ' + resp.status + '）');
     const html = await resp.text();
     const un = unescapePage(html); // 页面数据多为 \" 转义过的 JSON，先解一层再提取
@@ -321,9 +386,10 @@ function todayStr() {
 function clientIp(request) {
   return request.headers.get('cf-connecting-ip') || '';
 }
+// 所有按 IP 的限流键都用 ipLimitKey：IPv6 按 /64 归一，换地址后 64 位拿不到新配额
 function quotaKeys(ip, device) {
   const keys = [];
-  if (ip) keys.push('dlimit_kuaishou_ip_' + ip + '_' + todayStr());
+  if (ip) keys.push('dlimit_kuaishou_ip_' + ipLimitKey(ip) + '_' + todayStr());
   if (device) keys.push('quota_kuaishou_' + todayStr() + '_' + device);
   return keys;
 }
@@ -332,7 +398,7 @@ async function checkRate(env, ip, device) {
   if (!kv) return { ok: true };
   try {
     if (ip) {
-      const lastTs = await kv.get('pcool_kuaishou_' + ip);
+      const lastTs = await kv.get('pcool_kuaishou_' + ipLimitKey(ip));
       if (lastTs) {
         const remain = PARSE_COOLDOWN_SECS - Math.floor((Date.now() - Number(lastTs)) / 1000);
         if (remain > 0) return { ok: false, error: '解析太频繁，请 ' + remain + ' 秒后再试' };
@@ -356,7 +422,7 @@ async function markParse(env, request, ip, device) {
     await kv.put('stats_parse_kuaishou', String((parseInt((await kv.get('stats_parse_kuaishou')) || '0', 10) || 0) + 1));
   } catch {}
   try {
-    if (ip) await kv.put('pcool_kuaishou_' + ip, String(Date.now()), { expirationTtl: PARSE_COOLDOWN_SECS });
+    if (ip) await kv.put('pcool_kuaishou_' + ipLimitKey(ip), String(Date.now()), { expirationTtl: PARSE_COOLDOWN_SECS });
     if (device) await kv.put('cd_parse_kuaishou_' + device, '1', { expirationTtl: 60 });
     for (const k of quotaKeys(ip, device)) {
       const used = parseInt((await kv.get(k)) || '0', 10) || 0;
@@ -475,10 +541,13 @@ async function handleDl(request) {
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), 90000);
   try {
-    const resp = await fetch(mediaUrl, {
+    // redirect: 'manual' 逐跳校验：最多 5 跳，每一跳都必须 https 且在 DL_HOSTS 白名单里（以前自动跟随，CDN 302 到哪就代理到哪）
+    const okHost = (h) => { h = String(h || '').toLowerCase(); return DL_HOSTS.some((d) => h === d || h.endsWith('.' + d)); };
+    const resp = await fetchAllowedHops(mediaUrl, {
       headers: { 'User-Agent': UA_MOBILE, Referer: 'https://www.kuaishou.com/', Accept: '*/*' },
       signal: ctrl.signal,
-    });
+    }, okHost, 5);
+    if (!resp) return json({ ok: false, error: '下载地址跳转到了不支持的域名' }, 400);
     if (!resp.ok || !resp.body) return json({ ok: false, error: '下载失败（HTTP ' + resp.status + '）' }, 502);
     const h = new Headers();
     h.set('Content-Type', resp.headers.get('content-type') || 'application/octet-stream');
@@ -486,7 +555,7 @@ async function handleDl(request) {
     if (len) h.set('Content-Length', len);
     h.set('Content-Disposition', 'attachment; filename="' + filename + '"');
     h.set('Cache-Control', 'no-store');
-    h.set('Access-Control-Allow-Origin', '*');
+    h.set('X-Content-Type-Options', 'nosniff');
     return new Response(resp.body, { status: 200, headers: h });
   } catch (e) {
     return json({ ok: false, error: '下载失败：' + (e.message || '网络错误') }, 502);
@@ -519,7 +588,7 @@ async function handleFeedback(request, env) {
     if (!(await verifyTurnstile(tsToken, secret, ip))) return json({ ok: false, error: '人机验证未通过，请重试' }, 403);
   }
   const kv = env.FEEDBACK_KV;
-  const cdKey = ip ? 'cool_kuaishou_' + ip : device ? 'cd_feedback_' + device : '';
+  const cdKey = ip ? 'cool_kuaishou_' + ipLimitKey(ip) : device ? 'cd_feedback_' + device : '';
   try {
     if (cdKey && (await kv.get(cdKey))) return json({ ok: false, error: '提交太频繁，请 10 分钟后再试' }, 429);
   } catch {}
@@ -548,7 +617,7 @@ async function handleFeedback(request, env) {
 }
 
 // ---------- 主路由 ----------
-export default {
+const app = {
   async fetch(request, env) {
     const url = new URL(request.url);
     if (url.pathname === '/api/parse' && (request.method === 'POST' || request.method === 'GET'))
@@ -568,5 +637,12 @@ export default {
     if (url.pathname === '/api/health') return json({ ok: true });
     if (url.pathname.startsWith('/api/')) return json({ ok: false, error: '接口不存在' }, 404);
     return env.ASSETS.fetch(request);
+  },
+};
+
+// CORS 不再是 *：/api/* 只给本站来源（同源、kuaishoujiexi.pages.dev 及预览子域、ALLOWED_ORIGINS 里的自定义域名）回显 Origin，并带 Vary: Origin
+export default {
+  async fetch(request, env, ctx) {
+    return applyCors(request, env, await app.fetch(request, env, ctx));
   },
 };
