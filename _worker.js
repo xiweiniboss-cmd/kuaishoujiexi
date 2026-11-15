@@ -151,9 +151,10 @@ function extractKsUrl(text) {
   return m ? m[0].replace(/[.,;!?\]]+$/, '') : null;
 }
 
+// 页面/短链域名（识别输入、跟随跳转用；下载代理另有 DL_HOSTS，不受影响）。v.kuaishou.cn 是快手的 .cn 短链
 function isKsHost(hostname) {
-  return /(^|\.)kuaishou\.com$|(^|\.)gifshow\.com$|(^|\.)kuaishouapp\.com$|(^|\.)chenzhongtech\.com$/i.test(
-    hostname || ''
+  return /(^|\.)kuaishou\.com$|(^|\.)kuaishou\.cn$|(^|\.)gifshow\.com$|(^|\.)kuaishouapp\.com$|(^|\.)chenzhongtech\.com$/i.test(
+    String(hostname || '').replace(/\.$/, '')
   );
 }
 
