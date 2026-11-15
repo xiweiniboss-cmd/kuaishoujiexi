@@ -27,7 +27,7 @@ globalThis.fetch = async (u) => {
 let n = 0;
 async function parse(text) {
   calls = [];
-  const env = { FEEDBACK_KV: memKV(), REDFOX_API_KEY: 'fake', ASSETS: { fetch: async () => new Response('asset') } };
+  const env = { TURNSTILE_DISABLED: '1', FEEDBACK_KV: memKV(), REDFOX_API_KEY: 'fake', ASSETS: { fetch: async () => new Response('asset') } };
   const ctx = { waitUntil() {}, passThroughOnException() {} };
   const req = new Request('https://kuaishoujiexi.pages.dev/api/parse?url=' + encodeURIComponent(text), { headers: { 'cf-connecting-ip': '198.51.100.' + (++n) } });
   const r = await mod.fetch(req, env, ctx);
