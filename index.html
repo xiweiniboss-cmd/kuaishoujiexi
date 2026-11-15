@@ -208,8 +208,12 @@ function toast(msg, kind) {
   toastTimer = setTimeout(() => { t.className = ''; }, 3600);
 }
 function extractUrl(text) {
-  const m = String(text || '').match(/https?:\/\/[^\s"'<>]+/i);
-  return m ? m[0].replace(/[.,;!?\]]+$/, '') : '';
+  const src = String(text || '');
+  const chars = "[A-Za-z0-9\\-._~:/?#\\[\\]@!$&'*+,;=%]";
+  const hit = src.match(new RegExp('https?://' + chars + '+', 'i'));
+  const bare = hit ? null : src.match(new RegExp('(?:^|[^\\w.@/=:-])((?:[a-z0-9-]+\\.)+[a-z]{2,})(?![\\w.-])([/?#]' + chars + '*)?', 'i'));
+  const raw = hit ? hit[0] : (bare ? 'https://' + bare[1] + (bare[2] || '') : '');
+  return raw ? raw.replace(/[.,;!?\]]+$/, '') : '';
 }
 // 和后端 _worker.js 的 isKsHost 同一份域名：等于或以 .域名 结尾才算，冒充的 kuaishou.com.evil.example 不算
 const KS_HOSTS = ['kuaishou.com', 'kuaishou.cn', 'gifshow.com', 'kuaishouapp.com', 'chenzhongtech.com'];
