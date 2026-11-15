@@ -61,3 +61,30 @@ for (const link of [
     assert.ok(!r.calls.some((u) => /evil|kuaishou\.co\//.test(u)), '不该去抓冒充域名：' + r.calls.join(','));
   });
 }
+
+// 没写 https:// 的裸链接
+for (const text of [
+  'v.kuaishou.com/2xYzAbC',
+  'v.kuaishou.cn/2xYzAbC 复制此链接，打开【快手】直接观看！',
+  'www.kuaishou.com/short-video/3xabcdefg123456',
+]) {
+  test('裸链接补 https:// 后接受 ' + text.slice(0, 40), async () => {
+    const r = await parse(text);
+    assert.ok(!r.body.includes(REJECT) && !r.body.includes('没找到'), r.status + ' ' + r.body.slice(0, 160));
+    assert.ok(r.calls.length > 0 && r.calls.every((u) => /^https:\/\/((v\.|www\.)?kuaishou\.(com|cn)|redfox\.hk)\//i.test(u)), r.calls.join('\n'));
+  });
+}
+for (const text of [
+  'v.kuaishou.cn.evil.example/x',
+  'fakekuaishou.cn/x',
+  'kuaishou.cn-evil.com/x',
+  'evil.example/?u=v.kuaishou.cn/x',
+  'evil.example/v.kuaishou.com/x',
+]) {
+  test('裸链接冒充域名仍拒 ' + text, async () => {
+    const r = await parse(text);
+    assert.equal(r.status, 400, r.body.slice(0, 160));
+    assert.ok(r.body.includes(REJECT) || r.body.includes('没找到'), r.body.slice(0, 160));
+    assert.equal(r.calls.length, 0, '不该去抓：' + r.calls.join(','));
+  });
+}

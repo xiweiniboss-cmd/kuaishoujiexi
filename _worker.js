@@ -145,10 +145,16 @@ async function redfoxPost(path, apiKey, body) {
 }
 
 // ---------- 链接处理 ----------
+// 没写 https:// 的裸链接（如 v.kuaishou.com/xxx）补上 https://，再走 isKsHost 白名单。
+// 链接只收 RFC3986 子集字符，遇到空白、汉字、全角标点就停
+const URL_CHARS = "[A-Za-z0-9\\-._~:/?#\\[\\]@!$&'*+,;=%]";
 function extractKsUrl(text) {
   if (!text) return null;
-  const m = String(text).match(/https?:\/\/[^\s"'<>]+/i);
-  return m ? m[0].replace(/[.,;!?\]]+$/, '') : null;
+  const src = String(text);
+  const hit = src.match(new RegExp('https?://' + URL_CHARS + '+', 'i'));
+  const bare = hit ? null : src.match(new RegExp('(?:^|[^\\w.@/=:-])((?:[a-z0-9-]+\\.)+[a-z]{2,})(?![\\w.-])([/?#]' + URL_CHARS + '*)?', 'i'));
+  const raw = hit ? hit[0] : (bare ? 'https://' + bare[1] + (bare[2] || '') : null);
+  return raw ? raw.replace(/[.,;!?\]]+$/, '') : null;
 }
 
 // 页面/短链域名（识别输入、跟随跳转用；下载代理另有 DL_HOSTS，不受影响）。v.kuaishou.cn 是快手的 .cn 短链
