@@ -553,9 +553,10 @@ $('fbChips').addEventListener('click', (e) => {
 $('fbSubmit').addEventListener('click', async () => {
   let message = $('fbText').value.trim();
   if (!message && !fbKind) { toast('先写一下遇到了什么，或选一个问题类型', 'err'); $('fbText').focus(); return; }
-  if (fbKind) message = '【' + fbKind + '】\n' + (message || '（未写具体描述）');
+  if (!message) message = '（未写具体描述）';
+  // 问题类型和当前输入的链接单独提交（kind / link），不再拼进内容被截断
   const raw = ($('urlInput').value || '').trim();
-  if (/https?:\/\//i.test(raw)) message += '\n\n当前输入：\n' + raw.slice(0, 800);
+  const link = /https?:\/\//i.test(raw) ? raw.slice(0, 800) : '';
   const btn = $('fbSubmit');
   btn.disabled = true; btn.textContent = '提交中……';
   try {
@@ -564,10 +565,10 @@ $('fbSubmit').addEventListener('click', async () => {
     const resp = await fetch('/api/feedback', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ message, contact: $('fbContact').value.trim(), device: deviceId, page: location.href, tsToken }),
+      body: JSON.stringify({ message, kind: fbKind, link, contact: $('fbContact').value.trim(), device: deviceId, page: location.href, tsToken }),
     });
     const j = await resp.json().catch(() => null);
-    if (!j || !j.ok) throw new Error((j && j.error) || '提交失败');
+    if (!j || !j.ok) throw new Error((j && j.error) || ('服务器出错（HTTP ' + resp.status + '），请稍后重试'));
     $('fbText').value = ''; $('fbContact').value = '';
     fbKind = '';
     document.querySelectorAll('.fb-chip').forEach((x) => x.classList.remove('on'));

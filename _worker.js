@@ -571,16 +571,24 @@ async function handleFeedback(request, env) {
     contact = '',
     device = '',
     page = '',
+    kind = '',
+    link = '',
     tsToken = '';
   try {
     const body = await request.json();
-    message = String(body.message || '').trim().slice(0, 2000);
+    message = String(body.message || '').trim();
+    // 问题类型、当前输入的链接单独存（以前拼进 message 再截到 2000 字，链接会被悄悄截掉）
+    kind = String(body.kind || '').replace(/[\r\n]+/g, ' ').trim().slice(0, 20);
+    link = String(body.link || '').trim().slice(0, 800);
     contact = String(body.contact || '').trim().slice(0, 120);
     device = String(body.device || '').replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 64);
     page = String(body.page || '').slice(0, 200);
     tsToken = String(body.tsToken || body['cf-turnstile-response'] || '');
   } catch {}
+  if (!message && kind) message = '（未写具体描述）';
   if (!message) return json({ ok: false, error: '请先写点内容再提交' }, 400);
+  // 2000 字只算用户自己写的内容；旧前端把类型和链接拼进 message，没带 kind/link 时放宽到 3000
+  if (message.length > (kind || link ? 2000 : 3000)) return json({ ok: false, error: '内容太长，请精简到 2000 字以内' }, 400);
   const secret = (env.TURNSTILE_SECRET_KEY || '').trim();
   const ip = clientIp(request);
   if (secret) {
@@ -593,11 +601,17 @@ async function handleFeedback(request, env) {
     if (cdKey && (await kv.get(cdKey))) return json({ ok: false, error: '提交太频繁，请 10 分钟后再试' }, 429);
   } catch {}
   const id = 'fb_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 8);
-  if (!/^https?:\/\//.test(page)) page = 'https://kuaishoujiexi.pages.dev/';
+  try {
+    const pu = new URL(page);
+    if (pu.protocol !== 'https:' && pu.protocol !== 'http:') page = '';
+  } catch { page = ''; }
+  if (!page) page = 'https://kuaishoujiexi.pages.dev/';
   const cf = request.cf || {};
   const rec = {
     id,
     message,
+    kind,
+    link,
     contact,
     page,
     attachments: [],
