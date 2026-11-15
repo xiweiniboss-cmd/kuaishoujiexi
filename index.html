@@ -211,6 +211,14 @@ function extractUrl(text) {
   const m = String(text || '').match(/https?:\/\/[^\s"'<>]+/i);
   return m ? m[0].replace(/[.,;!?\]]+$/, '') : '';
 }
+// 和后端 _worker.js 的 isKsHost 同一份域名：等于或以 .域名 结尾才算，冒充的 kuaishou.com.evil.example 不算
+const KS_HOSTS = ['kuaishou.com', 'kuaishou.cn', 'gifshow.com', 'kuaishouapp.com', 'chenzhongtech.com'];
+function isKsUrl(u) {
+  try {
+    const h = new URL(u).hostname.toLowerCase().replace(/\.$/, '');
+    return KS_HOSTS.some((d) => h === d || h.endsWith('.' + d));
+  } catch { return false; }
+}
 
 /* Turnstile（可选，懒加载）：公钥由后端 /api/turnstile-key 下发（Pages 变量 TURNSTILE_SITE_KEY），没配就跳过 */
 /* 人机验证（懒加载）：首屏不加载 Turnstile，用户第一次点「开始解析」（或打开反馈）时才拉脚本并渲染。
@@ -309,7 +317,7 @@ async function parse() {
   const text = $('urlInput').value.trim();
   const url = extractUrl(text);
   if (!url) { toast('先粘贴一个快手分享链接吧', 'err'); $('urlInput').focus(); return; }
-  if (!/kuaishou|gifshow/i.test(url)) { toast('这好像不是快手链接，检查一下再试', 'err'); return; }
+  if (!isKsUrl(url)) { toast('这好像不是快手链接，检查一下再试', 'err'); return; }
   const btn = $('btnParse');
   if (btn.disabled) return;
   btn.disabled = true;
