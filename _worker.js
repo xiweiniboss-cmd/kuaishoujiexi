@@ -37,7 +37,8 @@ function ipLimitKey(ip) {
 // ================= 原子频控（D1 rate_counter，和微博站共用同一张表） =================
 // 冷却 60 秒 + 每 IP（IPv6 按 /64）每天（北京时间）20 次。解析之前用一条 UPSERT 原子地「判断 + 占坑」：
 //   并发一批请求只有第一个能占到坑；失败的解析也算一次（不能拿坏链接无限刷上游接口）。
-// 没绑 PARSE_DB / D1 出错：退回 KV，同样先占坑再解析（KV 非原子，只是兜底）。
+// D1 出错 / 超过 2 秒：直接拒绝（503「服务繁忙，请稍后再试」），不再退回 KV。
+// 只有根本没绑 PARSE_DB（本地 / 测试）才用 KV 先占坑（非原子，只是兜底）；KV 也出错同样拒绝。
 const RL_COOLDOWN_SECS = 60;
 const RL_DAILY_LIMIT = 20;
 const RL_TIMEOUT_MS = 2000;
@@ -48,15 +49,16 @@ function rlWithTimeout(p, ms) {
   let t;
   return Promise.race([p, new Promise((_, rej) => { t = setTimeout(() => rej(new Error('timeout')), ms); })]).finally(() => clearTimeout(t));
 }
-function rlDeny(now, last, used) {
-  if (last && now - last < RL_COOLDOWN_SECS * 1000) {
-    const wait = Math.ceil((RL_COOLDOWN_SECS * 1000 - (now - last)) / 1000);
+const RL_BUSY = { ok: false, status: 503, msg: '服务繁忙，请稍后再试' };
+function rlDeny(now, last, used, limit = RL_DAILY_LIMIT, cooldownSecs = RL_COOLDOWN_SECS) {
+  if (cooldownSecs > 0 && last && now - last < cooldownSecs * 1000) {
+    const wait = Math.ceil((cooldownSecs * 1000 - (now - last)) / 1000);
     return { ok: false, status: 429, msg: '解析太频繁，请 ' + wait + ' 秒后再试' };
   }
-  if (used >= RL_DAILY_LIMIT) return { ok: false, status: 429, msg: '今日解析次数已用完（' + RL_DAILY_LIMIT + ' 次），明天再来吧' };
+  if (used >= limit) return { ok: false, status: 429, msg: '今日解析次数已用完（' + limit + ' 次），明天再来吧' };
   return null;
 }
-async function rateTake(env, site, rawIp) {
+async function rateTake(env, site, rawIp, limit = RL_DAILY_LIMIT, cooldownSecs = RL_COOLDOWN_SECS) {
   const ip = ipLimitKey(rawIp);
   if (!ip) return { ok: true };
   const now = Date.now();
@@ -67,11 +69,11 @@ async function rateTake(env, site, rawIp) {
       const got = await rlWithTimeout(db.prepare(
         'INSERT INTO rate_counter (k, n, last, exp) VALUES (?, 1, ?, ?) ON CONFLICT(k) DO UPDATE SET n = n + 1, last = excluded.last ' +
         'WHERE rate_counter.last <= ? AND rate_counter.n < ? RETURNING n'
-      ).bind(k, now, now + 2 * 86400000, now - RL_COOLDOWN_SECS * 1000, RL_DAILY_LIMIT).first(), RL_TIMEOUT_MS);
+      ).bind(k, now, now + 2 * 86400000, now - cooldownSecs * 1000, limit).first(), RL_TIMEOUT_MS);
       if (got) return { ok: true };
       const cur = await rlWithTimeout(db.prepare('SELECT n, last FROM rate_counter WHERE k = ?').bind(k).first(), RL_TIMEOUT_MS);
-      return rlDeny(now, Number(cur && cur.last) || 0, Number(cur && cur.n) || 0) || { ok: false, status: 429, msg: '解析太频繁，请稍后再试' };
-    } catch (e) { /* D1 出错：退回 KV */ }
+      return rlDeny(now, Number(cur && cur.last) || 0, Number(cur && cur.n) || 0, limit, cooldownSecs) || { ok: false, status: 429, msg: '解析太频繁，请稍后再试' };
+    } catch (e) { return RL_BUSY; } // D1 挂了 / 超时：拒绝，不退回 KV
   }
   const kv = env && env.FEEDBACK_KV;
   if (kv) {
@@ -79,13 +81,13 @@ async function rateTake(env, site, rawIp) {
       const ck = 'pcool_' + site + '_' + ip, qk = 'dlimit_' + site + '_' + ip + '_' + rlDate();
       const [lastTs, usedRaw] = await Promise.all([kv.get(ck), kv.get(qk)]);
       const used = Number(usedRaw) || 0;
-      const deny = rlDeny(now, Number(lastTs) || 0, used);
+      const deny = rlDeny(now, Number(lastTs) || 0, used, limit, cooldownSecs);
       if (deny) return deny;
       await Promise.all([
-        kv.put(ck, String(now), { expirationTtl: RL_COOLDOWN_SECS }),
+        cooldownSecs > 0 ? kv.put(ck, String(now), { expirationTtl: Math.max(60, cooldownSecs) }) : null,
         kv.put(qk, String(used + 1), { expirationTtl: 172800 }),
       ]);
-    } catch {}
+    } catch { return RL_BUSY; }
   }
   return { ok: true };
 }
