@@ -1,3 +1,4 @@
+import {sqliteD1} from './helpers/d1.mjs';
 // 分享域名白名单：v.kuaishou.cn 短链要认，冒充域名要拒。运行：node --test test/
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -27,7 +28,7 @@ globalThis.fetch = async (u) => {
 let n = 0;
 async function parse(text) {
   calls = [];
-  const env = { TURNSTILE_DISABLED: '1', FEEDBACK_KV: memKV(), REDFOX_API_KEY: 'fake', ASSETS: { fetch: async () => new Response('asset') } };
+  const env = { PARSE_DB:sqliteD1(), TURNSTILE_DISABLED: '1', FEEDBACK_KV: memKV(), REDFOX_API_KEY: 'fake', ASSETS: { fetch: async () => new Response('asset') } };
   const ctx = { waitUntil() {}, passThroughOnException() {} };
   const req = new Request('https://kuaishoujiexi.pages.dev/api/parse?url=' + encodeURIComponent(text), { headers: { 'cf-connecting-ip': '198.51.100.' + (++n) } });
   const r = await mod.fetch(req, env, ctx);
