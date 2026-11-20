@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>快手无水印解析下载</title>
 <meta name="description" content="粘贴快手分享链接，解析公开视频和图集，去掉水印后保存到这台设备。">
-<meta name="theme-color" content="#141415">
+<meta name="theme-color" content="#f4eedc">
 <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%23141415'/%3E%3Cpath d='M14 24V14h10M40 14h10v10M50 40v10H40M24 50H14V40' fill='none' stroke='%23FF7A1A' stroke-width='4'/%3E%3Cpath d='M27 22v20l16-10z' fill='%23FF7A1A'/%3E%3C/svg%3E">
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="快手无水印解析下载">
@@ -326,7 +326,7 @@ var JxTs = (function(){
               box.style.display = '';
               try {
                 wid = turnstile.render(box, {
-                  sitekey: k, theme: 'dark', language: 'zh-cn',
+                  sitekey: k, theme: 'light', language: 'zh-cn',
                   callback: function(t){ flush(true, t); },
                   'error-callback': function(){ flush(false, new Error('人机验证出错，请再点一次')); return true; },
                   'expired-callback': function(){ try { turnstile.reset(wid); } catch (e) {} }
