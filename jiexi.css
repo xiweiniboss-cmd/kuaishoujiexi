@@ -1939,3 +1939,53 @@ body { background-color: var(--jx-paper); background-image: radial-gradient(elli
   #fbBtn { width: 44px; height: 44px; padding: 0; justify-content: center; gap: 0; }
   #fbBtn .fb-label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 }
+
+/* ----- 文件大小 / 预览状态 / 交给浏览器下载（fix-large-download） ----- */
+
+.sizeline {
+  margin: var(--jx-space-3) 0 0;
+  font-size: var(--jx-text-sm);
+  line-height: var(--jx-leading-sm);
+  color: var(--jx-muted);
+}
+
+.sizeline.is-warn { color: var(--jx-warning); font-weight: 500; }
+
+.sizeline.is-warn::before { content: "⚠ "; }
+
+.sizenote {
+  margin-top: var(--jx-space-3);
+  padding: var(--jx-space-3) var(--jx-space-4);
+  background: var(--jx-surface);
+  border: 1px solid var(--jx-hairline);
+  border-left: 2px solid var(--jx-warning);
+  border-radius: var(--jx-radius-button);
+  color: var(--jx-secondary);
+  font-size: var(--jx-text-sm);
+  line-height: var(--jx-leading-md);
+  word-break: break-word;
+}
+
+.prevstate { display: none; margin-top: var(--jx-space-3); font-size: var(--jx-text-sm); line-height: var(--jx-leading-sm); color: var(--jx-muted); text-align: center; }
+
+.prevstate.show { display: block; }
+
+.prevstate.is-err {
+  padding: var(--jx-space-3) var(--jx-space-4);
+  background: var(--jx-surface);
+  border: 1px solid var(--jx-hairline);
+  border-left: 2px solid var(--jx-negative);
+  border-radius: var(--jx-radius-button);
+  color: var(--jx-secondary);
+  text-align: left;
+  word-break: break-word;
+}
+
+.prevstate .btn { display: flex; margin-top: var(--jx-space-3); height: 44px; }
+
+.dlsent {
+  margin-top: var(--jx-space-3);
+  font-size: var(--jx-text-sm);
+  line-height: var(--jx-leading-md);
+  color: var(--jx-secondary);
+}

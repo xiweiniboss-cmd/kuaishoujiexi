@@ -166,10 +166,13 @@ function jxParseHeaders(h) {
     </div>
     <div class="title" id="resTitle"></div>
     <div class="res-author" id="resAuthor"></div>
+    <div class="sizeline" id="sizeLine" style="display:none">文件大小：<span id="sizeVal"></span></div>
+    <div class="sizenote" id="sizeNote" style="display:none" role="status"></div>
     <div class="res-actions">
       <button class="btn" id="btnDownload" type="button">下载视频</button>
       <button class="btn ghost" id="btnCopy" type="button">复制地址</button>
     </div>
+    <div class="dlsent" id="dlSent" style="display:none" role="status">已交给浏览器下载，请在浏览器的下载列表里查看进度。</div>
     <div class="grid" id="imgGrid" style="display:none"></div>
   </section>
 
@@ -427,6 +430,20 @@ function renderResult(j) {
   $('resAuthor').innerHTML = j.author ? '作者 <b></b>' : '';
   if (j.author) $('resAuthor').querySelector('b').textContent = '@' + j.author;
   const isVideo = (j.videos || []).length > 0;
+  $('dlSent').style.display = 'none';
+  $('sizeLine').style.display = 'none';
+  $('sizeNote').style.display = 'none';
+  const size = videoSize(j);
+  if (isVideo && size !== null) {
+    $('sizeVal').textContent = '约 ' + fmtSize(size);
+    $('sizeLine').className = 'sizeline' + (size > HUGE_FILE ? ' is-warn' : '');
+    $('sizeLine').style.display = 'block';
+  }
+  if (isVideo && (j.oversize || (size !== null && size > HUGE_FILE))) {
+    $('sizeNote').textContent = '这个文件异常大' + (size !== null ? '（约 ' + fmtSize(size) + '）' : '') +
+      '，可能不是正常的视频源，下载会很慢、很占流量。可以等一分钟后重新解析一次，通常能拿到正常大小的文件。';
+    $('sizeNote').style.display = 'block';
+  }
   $('btnDownload').style.display = isVideo ? '' : 'none';
   $('btnCopy').style.display = isVideo ? '' : 'none';
   const grid = $('imgGrid');
@@ -451,9 +468,26 @@ $('btnCopy').addEventListener('click', async () => {
   try { await navigator.clipboard.writeText(current.videos[0]); toast('视频地址已复制', 'ok'); }
   catch { toast('复制失败，请用下载按钮保存'); }
 });
+// 大文件分界：已知大小超过 BIG_DL 或大小未知，一律交给浏览器原生下载（不读进内存）；超过 HUGE_FILE 或后端标了 oversize 提示文件异常大
+const BIG_DL = 100 * 1048576, HUGE_FILE = 500 * 1048576;
+function fmtSize(b) { return b >= 1073741824 ? (b / 1073741824).toFixed(1) + ' GB' : Math.max(1, Math.round(b / 1048576)) + ' MB'; }
+function videoSize(j) { return (j && j.sizes && typeof j.sizes[0] === 'number' && j.sizes[0] > 0) ? j.sizes[0] : null; }
+function dlUrl(mediaUrl, filename) { return '/api/dl?url=' + encodeURIComponent(mediaUrl) + '&filename=' + encodeURIComponent(filename); }
+// 原生下载：同源 /api/dl 带 attachment，浏览器自己存盘，不弹分享菜单，所以不显示 iPhone 提示
+function nativeDownload(mediaUrl, filename) {
+  const a = document.createElement('a');
+  a.href = dlUrl(mediaUrl, filename); a.download = filename; a.rel = 'noopener';
+  document.body.appendChild(a); a.click();
+  setTimeout(() => a.remove(), 2000);
+  $('dlSent').style.display = 'block';
+}
 $('btnDownload').addEventListener('click', () => {
   if (!current || !current.videos || !current.videos[0]) return;
-  openSheet(current.videos[0], 'kuaishou_' + Date.now() + '.mp4');
+  const name = 'kuaishou_' + Date.now() + '.mp4';
+  const size = videoSize(current);
+  if (size === null || size > BIG_DL) { nativeDownload(current.videos[0], name); return; }
+  $('dlSent').style.display = 'none';
+  openSheet(current.videos[0], name);
 });
 
 /* ============ 下载弹层 ============ */

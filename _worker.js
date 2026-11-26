@@ -488,6 +488,58 @@ async function markParse(env, request, ip, device) {
   } catch {}
 }
 
+// ---------- 下载域名 / 大小探测 / Content-Disposition ----------
+const DL_HOSTS = ['yximgs.com', 'kwimgs.com', 'kwaicdn.com', 'kuaishou.com', 'gifshow.com', 'chenzhongtech.com', 'kuaishouapp.com'];
+const dlHostOk = (h) => { h = String(h || '').toLowerCase(); return DL_HOSTS.some((d) => h === d || h.endsWith('.' + d)); };
+const DL_HEADERS = { 'User-Agent': UA_MOBILE, Referer: 'https://www.kuaishou.com/', Accept: '*/*' };
+// Content-Disposition：filename 给 ASCII 兜底，filename* 给 UTF-8 原名（RFC 6266 / 5987）
+function contentDisposition(type, name) {
+  const raw = String(name || 'download').replace(/[\r\n"\\]/g, '').slice(0, 120) || 'download';
+  const ascii = raw.replace(/[^\x20-\x7e]/g, '_').replace(/[;%]/g, '_') || 'download';
+  const star = encodeURIComponent(raw).replace(/['()*]/g, (c) => '%' + c.charCodeAt(0).toString(16).toUpperCase());
+  return type + '; filename="' + ascii + '"; filename*=UTF-8\'\'' + star;
+}
+// 探测每个候选视频地址的大小（Range: bytes=0-0，从 Content-Range 读总长；不支持 Range 时退回 Content-Length）
+const MAX_SANE_VIDEO_BYTES = 500 * 1024 * 1024;
+const PROBE_TIMEOUT_MS = 5000;
+async function probeSize(url) {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), PROBE_TIMEOUT_MS);
+  try {
+    const resp = await fetchAllowedHops(url, { method: 'GET', headers: { ...DL_HEADERS, Range: 'bytes=0-0' }, signal: ctrl.signal }, dlHostOk);
+    if (!resp) return null;
+    let size = null;
+    const cr = /\/(\d+)\s*$/.exec(resp.headers.get('content-range') || '');
+    if (resp.status === 206 && cr) size = Number(cr[1]);
+    else if (resp.status === 200) {
+      const cl = Number(resp.headers.get('content-length'));
+      if (cl > 0) size = cl;
+    }
+    try { if (resp.body) await resp.body.cancel(); } catch {}
+    return Number.isFinite(size) && size > 0 ? size : null;
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+// 返回 { videos, sizes, oversize }：大小正常（< 上限）的排前面，其余保持原顺序；探测失败不影响原顺序
+async function rankVideosBySize(videos) {
+  if (!Array.isArray(videos) || !videos.length) return { videos: videos || [], sizes: [], oversize: false };
+  let sizes;
+  try { sizes = await Promise.all(videos.map((v) => probeSize(v).catch(() => null))); }
+  catch { sizes = videos.map(() => null); }
+  const idx = videos.map((_, i) => i);
+  const sane = (i) => sizes[i] !== null && sizes[i] < MAX_SANE_VIDEO_BYTES;
+  const ordered = [...idx.filter(sane), ...idx.filter((i) => !sane(i))];
+  const first = ordered[0];
+  return {
+    videos: ordered.map((i) => videos[i]),
+    sizes: ordered.map((i) => sizes[i]),
+    oversize: sizes[first] !== null && sizes[first] >= MAX_SANE_VIDEO_BYTES,
+  };
+}
+
 // ---------- 解析接口 ----------
 async function handleParse(request, env) {
   let shareText = '';
@@ -549,6 +601,15 @@ async function handleParse(request, env) {
     }
   }
   await markParse(env, request, ip, device);
+  // 探测各视频地址大小，大小正常的排前面；探测失败保持原顺序
+  if (Array.isArray(result.videos) && result.videos.length) {
+    try {
+      const ranked = await rankVideosBySize(result.videos);
+      result.videos = ranked.videos;
+      result.sizes = ranked.sizes;
+      result.oversize = ranked.oversize;
+    } catch {}
+  }
   // 预览卡片（allfeedback「解析记录」）：封面 / 标题 / 类型。图集没有封面时用第一张图
   const ksImgs = Array.isArray(result.images) ? result.images : [];
   const ksImg0 = typeof ksImgs[0] === 'string' ? ksImgs[0] : (ksImgs[0] && ksImgs[0].url) || '';
@@ -572,35 +633,55 @@ async function handleDl(request) {
   const u = new URL(request.url);
   const mediaUrl = u.searchParams.get('url') || '';
   const filename = (u.searchParams.get('filename') || 'kuaishou_media').replace(/["\r\n]/g, '').slice(0, 80) || 'kuaishou_media';
+  const isHead = request.method === 'HEAD';
   let target = null;
   try {
     target = new URL(mediaUrl);
   } catch {
     return json({ ok: false, error: '无效的下载地址' }, 400);
   }
-  const DL_HOSTS = ['yximgs.com', 'kwimgs.com', 'kwaicdn.com', 'kuaishou.com', 'gifshow.com', 'chenzhongtech.com', 'kuaishouapp.com'];
-  const th = target.hostname.toLowerCase();
-  if (!/^https:$/.test(target.protocol) || !DL_HOSTS.some((d) => th === d || th.endsWith('.' + d)))
+  if (!/^https:$/.test(target.protocol) || !dlHostOk(target.hostname))
     return json({ ok: false, error: '不支持的下载地址' }, 400);
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), 90000);
   try {
-    // redirect: 'manual' 逐跳校验：最多 5 跳，每一跳都必须 https 且在 DL_HOSTS 白名单里（以前自动跟随，CDN 302 到哪就代理到哪）
-    const okHost = (h) => { h = String(h || '').toLowerCase(); return DL_HOSTS.some((d) => h === d || h.endsWith('.' + d)); };
+    // 转发客户端的 Range（拖进度条 / 断点 / 大小探测都靠它）；格式不对的 Range 直接忽略
+    const upHeaders = { ...DL_HEADERS };
+    const range = request.headers.get('Range') || '';
+    if (/^bytes=\d*-\d*(,\s*\d*-\d*)*$/.test(range)) upHeaders.Range = range;
+    // redirect: 'manual' 逐跳校验：最多 5 跳，每一跳都必须 https 且在 DL_HOSTS 白名单里
     const resp = await fetchAllowedHops(mediaUrl, {
-      headers: { 'User-Agent': UA_MOBILE, Referer: 'https://www.kuaishou.com/', Accept: '*/*' },
+      method: isHead ? 'HEAD' : 'GET',
+      headers: upHeaders,
       signal: ctrl.signal,
-    }, okHost, 5);
+    }, dlHostOk, 5);
     if (!resp) return json({ ok: false, error: '下载地址跳转到了不支持的域名' }, 400);
-    if (!resp.ok || !resp.body) return json({ ok: false, error: '下载失败（HTTP ' + resp.status + '）' }, 502);
+    if (resp.status === 416) {
+      const h416 = new Headers();
+      const cr = resp.headers.get('content-range');
+      if (cr) h416.set('Content-Range', cr);
+      h416.set('Cache-Control', 'no-store');
+      return new Response(null, { status: 416, headers: h416 });
+    }
+    if (!resp.ok || (!resp.body && !isHead)) return json({ ok: false, error: '下载失败（HTTP ' + resp.status + '）' }, 502);
     const h = new Headers();
     h.set('Content-Type', resp.headers.get('content-type') || 'application/octet-stream');
     const len = resp.headers.get('content-length');
     if (len) h.set('Content-Length', len);
-    h.set('Content-Disposition', 'attachment; filename="' + filename + '"');
+    const ar = resp.headers.get('accept-ranges');
+    if (ar) h.set('Accept-Ranges', ar);
+    let status = 200;
+    if (resp.status === 206) {
+      status = 206;
+      const cr = resp.headers.get('content-range');
+      if (cr) h.set('Content-Range', cr);
+      h.set('Accept-Ranges', 'bytes');
+    }
+    h.set('Content-Disposition', contentDisposition('attachment', filename));
     h.set('Cache-Control', 'no-store');
     h.set('X-Content-Type-Options', 'nosniff');
-    return new Response(resp.body, { status: 200, headers: h });
+    if (isHead) { try { if (resp.body) await resp.body.cancel(); } catch {} }
+    return new Response(isHead ? null : resp.body, { status, headers: h });
   } catch (e) {
     return json({ ok: false, error: '下载失败：' + (e.message || '网络错误') }, 502);
   } finally {
@@ -988,7 +1069,7 @@ const app = {
     if (url.pathname === '/api/parse' && (request.method === 'POST' || request.method === 'GET'))
       return pl.wrap(request, env, ctx, () => handleParse(request, env));
     if (url.pathname === '/api/quota' && request.method === 'GET') return handleQuota(request, env);
-    if (url.pathname === '/api/dl' && request.method === 'GET') return pl.guard(request, env, ctx, () => handleDl(request));
+    if (url.pathname === '/api/dl' && (request.method === 'GET' || request.method === 'HEAD')) return pl.guard(request, env, ctx, () => handleDl(request));
     if (url.pathname === '/api/feedback' && request.method === 'POST') return handleFeedback(request, env);
     // Turnstile 公开 site key（没配就返回空，前端据此跳过人机验证）
     if (url.pathname === '/api/turnstile-key')
