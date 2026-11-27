@@ -356,7 +356,8 @@ var JxTs = (function(){
     function used(){ if (wid !== null) { try { turnstile.reset(wid); } catch (e) {} } }
     function remove(){
       if (wid === null) return;
-      try { turnstile.remove(wid); } finally { wid = null; }
+      try { turnstile.remove(wid); } catch (e) {}
+      wid = null;
       document.getElementById(boxId).style.display = 'none';
     }
     return { token: token, used: used, remove: remove };
@@ -404,7 +405,6 @@ async function parse() {
   try {
     const tsToken = await JxTsParse.token();
     btn.innerHTML = '<span class="spinner"></span>解析中……';
-    JxTsParse.remove();
     const resp = await fetch('/api/parse', {
       method: 'POST',
       headers: jxParseHeaders({ 'Content-Type': 'application/json' }),
@@ -421,6 +421,7 @@ async function parse() {
   } catch (e) {
     toast(e.message || '解析失败，请稍后重试', 'err');
   } finally {
+    JxTsParse.remove();
     btn.disabled = false;
     btn.textContent = '开始解析';
   }
