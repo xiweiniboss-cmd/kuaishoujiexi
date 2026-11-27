@@ -354,7 +354,13 @@ var JxTs = (function(){
     }
     // token 只能用一次：请求发出后重置，下次会重新验证（通常无感自动完成）
     function used(){ if (wid !== null) { try { turnstile.reset(wid); } catch (e) {} } }
-    return { token: token, used: used };
+    function remove(){
+      if (wid === null) return;
+      try { turnstile.remove(wid); } catch (e) {}
+      wid = null;
+      document.getElementById(boxId).style.display = 'none';
+    }
+    return { token: token, used: used, remove: remove };
   }
   return { siteKey: siteKey, script: script, make: make };
 })();
@@ -399,7 +405,6 @@ async function parse() {
   try {
     const tsToken = await JxTsParse.token();
     btn.innerHTML = '<span class="spinner"></span>解析中……';
-    JxTsParse.used();
     const resp = await fetch('/api/parse', {
       method: 'POST',
       headers: jxParseHeaders({ 'Content-Type': 'application/json' }),
@@ -416,6 +421,7 @@ async function parse() {
   } catch (e) {
     toast(e.message || '解析失败，请稍后重试', 'err');
   } finally {
+    JxTsParse.remove();
     btn.disabled = false;
     btn.textContent = '开始解析';
   }
